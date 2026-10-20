@@ -4509,6 +4509,52 @@ html body #gamein-root#gamein-root .gbx-cyc b{color:#FFFFFF;font:700 18px/1.2 Ra
 html body #gamein-root#gamein-root .gbx-cyc span{color:#ABAEB1;font-size:12.5px}
 html body #gamein-root#gamein-root .gbx-cyc .gbx-chip{justify-self:start;margin-top:8px}
 
+/* v60: offers that run end to end */
+html body #gamein-root#gamein-root .gbx-ohead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+html body #gamein-root#gamein-root .gbx-ohead p{margin:0;color:#ABAEB1;font-size:14.5px}
+html body #gamein-root#gamein-root .gbx-empty{margin:0;padding:4px 0;color:#ABAEB1;font-size:14px}
+html body #gamein-root#gamein-root .gbx-orow__open{display:grid;min-width:0;padding:0;border:0;background:none;color:inherit;text-align:left;font:inherit;cursor:pointer}
+html body #gamein-root#gamein-root .gbx-orow__open:hover b{text-decoration:underline;text-underline-offset:3px}
+html body #gamein-root#gamein-root .gbx-orow__open:focus-visible{outline:2px solid #5CE5B0;outline-offset:2px;border-radius:2px}
+html body #gamein-root#gamein-root .gbx-demo{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;margin-top:12px;padding:10px 12px;border:1px dashed #4A4F55;border-radius:6px;color:#C2C6CC;font-size:14px;line-height:1.4}
+html body #gamein-root#gamein-root .gbx-demo>i{flex-shrink:0;padding:0 7px;border:1px solid #4A4F55;border-radius:999px;color:#ABAEB1;font:700 11px/18px Rajdhani,sans-serif;font-style:normal;letter-spacing:.12em;text-transform:uppercase}
+html body #gamein-root#gamein-root .gbx-demo>span:not(.gbx-demo__b){flex:1;min-width:160px}
+html body #gamein-root#gamein-root .gbx-demo__b{display:flex;flex-wrap:wrap;gap:8px}
+html body #gamein-root#gamein-root .gbx-items__dot.is-review{border-color:#5CE5B0;box-shadow:inset 0 0 0 4px rgba(92,229,176,.3)}
+html body #gamein-root#gamein-root .gbx-items__st.is-review{padding:0;color:#5CE5B0}
+html body #gamein-root#gamein-root .gbx-items__st.is-changes{color:#F19494}
+html body #gamein-root#gamein-root .gbx-ovh{display:flex;align-items:center;gap:12px}
+html body #gamein-root#gamein-root .gbx-ovh__t{display:grid;flex:1;min-width:0}
+html body #gamein-root#gamein-root .gbx-ovh b{color:#FFFFFF;font:700 17px Rajdhani,sans-serif}
+html body #gamein-root#gamein-root .gbx-ovh small{color:#ABAEB1;font-size:13px}
+html body #gamein-root#gamein-root .gbx-ver{display:grid;gap:12px;margin:0;padding:0 0 0 16px;list-style:none;border-left:2px solid rgba(74,79,85,.7)}
+html body #gamein-root#gamein-root .gbx-ver li{position:relative;display:grid;gap:2px}
+html body #gamein-root#gamein-root .gbx-ver li::before{content:"";position:absolute;left:-21px;top:5px;width:8px;height:8px;border-radius:50%;background:#4A4F55;box-shadow:0 0 0 3px #33363A}
+html body #gamein-root#gamein-root .gbx-ver li.is-last::before{background:#5CE5B0}
+html body #gamein-root#gamein-root .gbx-ver small{color:#ABAEB1;font:700 12px/16px Rajdhani,sans-serif;letter-spacing:.08em;text-transform:uppercase}
+html body #gamein-root#gamein-root .gbx-ver b{color:#FFFFFF;font:700 15.5px Rajdhani,sans-serif}
+html body #gamein-root#gamein-root .gbx-ver q{color:#C2C6CC;font-size:14px;font-style:italic;line-height:1.45}
+html body #gamein-root#gamein-root .gbx-act__l{margin-right:auto}
+html body #gamein-root#gamein-root .gbx-modal.is-wide{width:min(680px,100%)}
+html body #gamein-root#gamein-root .gbx-dlv{display:grid;gap:8px}
+html body #gamein-root#gamein-root .gbx-dlv__r{display:grid;grid-template-columns:minmax(0,1fr) 140px 40px;gap:8px;align-items:center}
+html body #gamein-root#gamein-root .gbx-dlv__r input,html body #gamein-root#gamein-root .gbx-dlv__r select,html body #gamein-root#gamein-root .gbx-form select{width:100%;min-height:40px;padding:8px 11px;background:#26282B;border:1px solid #4A4F55;border-radius:5px;color:#FFFFFF;font:500 15px Rajdhani,sans-serif;box-sizing:border-box;color-scheme:dark}
+html body #gamein-root#gamein-root .gbx-dlv__r input:focus,html body #gamein-root#gamein-root .gbx-dlv__r select:focus,html body #gamein-root#gamein-root .gbx-form select:focus{outline:none;border-color:#5CE5B0;box-shadow:0 0 0 3px rgba(92,229,176,.18)}
+html body #gamein-root#gamein-root .gbx-x{height:40px;border:1px solid #4A4F55;border-radius:5px;background:transparent;color:#ABAEB1;font-size:18px;line-height:1;cursor:pointer}
+html body #gamein-root#gamein-root .gbx-x:disabled{opacity:.35;cursor:default}
+html body #gamein-root#gamein-root .gbx-x:not(:disabled):hover{border-color:#EA7171;color:#F19494}
+html body #gamein-root#gamein-root .gbx-dlv__add{justify-self:start}
+html body #gamein-root#gamein-root .gbx-form .gbx-fld{display:grid;gap:6px;align-content:start}
+html body #gamein-root#gamein-root .gbx-form .gbx-fld>span{color:#ABAEB1;font:700 12px/16px Rajdhani,sans-serif;letter-spacing:.14em;text-transform:uppercase}
+html body #gamein-root#gamein-root .gbx-tr>span>small:only-child{color:#ABAEB1}
+@media (max-width:720px){
+ html body #gamein-root#gamein-root .gbx-dlv{gap:14px}
+ html body #gamein-root#gamein-root .gbx-dlv__r{grid-template-columns:minmax(0,1fr) 40px}
+ html body #gamein-root#gamein-root .gbx-dlv__r input{grid-column:1/-1}
+ html body #gamein-root#gamein-root .gbx-demo>span:not(.gbx-demo__b){min-width:100%}
+ html body #gamein-root#gamein-root .gbx-ohead .gc-btn{width:100%}
+}
+
 /* ===== gamein-auth-v59-css ===== */
 /* v59: sign in + richer registration fields (shares the onboarding card look) */
 .gsi .gob__card{width:min(480px,100%)}
