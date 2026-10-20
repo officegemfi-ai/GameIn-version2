@@ -4333,6 +4333,7 @@ html body #gamein-root#gamein-root .gbx-ov{position:fixed;inset:0;z-index:214748
 @keyframes gbx-fade{from{opacity:0}}
 html body #gamein-root#gamein-root .gbx-modal{display:grid;gap:14px;width:min(560px,100%);max-height:calc(100vh - 40px);overflow:auto;padding:20px 22px;background:#33363A;border:1px solid #4A4F55;border-radius:10px;box-shadow:0 30px 80px rgba(0,0,0,.55);animation:gbx-pop 240ms cubic-bezier(.2,.9,.25,1)}
 @keyframes gbx-pop{from{opacity:0;transform:translateY(10px) scale(.98)}}
+html body #gamein-root#gamein-root .gbx-modal:focus{outline:none}
 html body #gamein-root#gamein-root .gbx-modal__h{display:flex;align-items:center;justify-content:space-between;gap:12px}
 html body #gamein-root#gamein-root .gbx-modal__h b{color:#FFFFFF;font:700 20px Rajdhani,sans-serif}
 html body #gamein-root#gamein-root .gbx-sub{margin:0;color:#C2C6CC;font-size:14.5px;line-height:1.5}

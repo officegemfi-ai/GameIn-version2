@@ -1268,10 +1268,10 @@ function BxBar({d}){const H=q.createElement,t=d.tot||1,seg=(v,c)=>v>0?H("i",{cla
  return H("div",{className:"gbx-bar",role:"img","aria-label":"Escrow: "+Se(d.rel)+" released, "+Se(d.held)+" in escrow, "+Se(d.proc)+" processing, "+Se(d.open)+" not funded"},seg(d.rel,"is-rel"),seg(d.held,"is-held"),seg(d.proc,"is-proc"),seg(d.open,"is-open"))}
 function bxPortal(n){try{const t=document.getElementById("gamein-root");return t&&q5&&q5.createPortal?(0,q5.createPortal)(n,t):n}catch(e){return n}}
 function BxModal({title,onClose,children,wide}){const H=q.createElement,ref=(0,q.useRef)(null);
- (0,q.useEffect)(()=>{const prev=document.activeElement;const k=e=>{if(e.key==="Escape"){e.stopPropagation();onClose()}};document.addEventListener("keydown",k);
-  const f=ref.current&&(ref.current.querySelector(".gbx-modal input:not([type=radio]):not([type=checkbox]),.gbx-modal textarea")||ref.current.querySelector(".gbx-modal button"));f&&f.focus({preventScroll:!0});
+ (0,q.useEffect)(()=>{const prev=document.activeElement;const k=e=>{if(e.key==="Escape"){e.stopPropagation();onClose();return}if(e.key==="Tab"&&ref.current){const box=ref.current.querySelector(".gbx-modal"),f=[...box.querySelectorAll("button:not([disabled]),input:not([disabled]),textarea,select")].filter(x=>x.getClientRects().length);if(!f.length)return;const a=f[0],z=f[f.length-1],ae=document.activeElement;if(!box.contains(ae)){e.preventDefault();a.focus()}else if(e.shiftKey&&(ae===a||ae===box)){e.preventDefault();z.focus()}else if(!e.shiftKey&&ae===z){e.preventDefault();a.focus()}}};document.addEventListener("keydown",k);
+  const f=ref.current&&ref.current.querySelector(".gbx-modal");f&&f.focus({preventScroll:!0});
   return()=>{document.removeEventListener("keydown",k);if(prev&&prev.focus&&document.contains(prev))prev.focus({preventScroll:!0})}},[]);
- return bxPortal(H("div",{ref,className:"gbx-ov",role:"dialog","aria-modal":"true","aria-label":title,onClick:e=>{if(e.target===e.currentTarget)onClose()}},H("div",{className:"gbx-modal"+(wide?" is-wide":"")},H("div",{className:"gbx-modal__h"},H("b",null,title),H("button",{type:"button",className:"gc-hbtn","aria-label":"Close",onClick:onClose},"\u00d7")),children)))}
+ return bxPortal(H("div",{ref,className:"gbx-ov",role:"dialog","aria-modal":"true","aria-label":title,onClick:e=>{if(e.target===e.currentTarget)onClose()}},H("div",{className:"gbx-modal"+(wide?" is-wide":""),tabIndex:-1},H("div",{className:"gbx-modal__h"},H("b",null,title),H("button",{type:"button",className:"gc-hbtn","aria-label":"Close",onClick:onClose},"\u00d7")),children)))}
 /* ---------- fund escrow ---------- */
 function BxFund({d,onClose,NT}){const H=q.createElement,B=bxUse();const pend=d.ms.filter(m=>m.st==="pending");const[scope,setScope]=(0,q.useState)("next");
  const pms=B.S.pm,[pm,setPm]=(0,q.useState)((pms.find(p=>p.def)||pms[0]||{id:"new"}).id),[card,setCard]=(0,q.useState)({num:"",exp:"",cvc:"",name:"",zip:"",save:!0}),[phase,setPhase]=(0,q.useState)("form"),[res,setRes]=(0,q.useState)(null);
@@ -2945,7 +2945,7 @@ G.signIn=role=>{if(ov||document.querySelector('.gob'))return;
    +'<p class="gsi-err" role="alert">'+esc(st.err)+'</p><button type="button" class="gib-btn is-primary gsi-go" data-k="send">send reset link</button><p class="gsi-foot"><button type="button" class="gib-link" data-k="back">back to sign in</button></p>';
   if(v==='sent')h='<h2>Check your inbox</h2><p class="gob__p">If an account exists for <b>'+esc(st.email)+'</b>, a reset link is on its way. Open it on this device to set a new password.</p><button type="button" class="gib-btn is-primary gsi-go" data-k="back">back to sign in</button><p class="gsi-foot"><button type="button" class="gib-link" data-k="send">send it again</button></p>';
   ov.querySelector('.gob__body').innerHTML=h;
-  if(focus!==!1)setTimeout(()=>{const i=ov&&ov.querySelector(v==='code'?'[data-f="code"]':'[data-f="email"]');i&&i.focus()},30)};
+  if(focus!==!1&&!(window.matchMedia&&matchMedia('(pointer:coarse)').matches))setTimeout(()=>{const i=ov&&ov.querySelector(v==='code'?'[data-f="code"]':'[data-f="email"]');i&&i.focus()},30)};
  const go=()=>{if(!EM.test(st.email)){st.err='Enter a valid email address.';render(!1);ov.querySelector('[data-f="email"]').focus();return}
   if(st.pw.length<8){st.err='Passwords are at least 8 characters.';render(!1);ov.querySelector('[data-f="pw"]').focus();return}
   st.err='';st.busy=!0;render(!1);LSs('gib-signin-role',st.role);
