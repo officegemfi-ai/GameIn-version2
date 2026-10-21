@@ -26,7 +26,15 @@ const INVARIANTS = () => {
     if (!(r.ms || []).length) bad.push('receipt ' + r.id + ' pays for no milestone');
     (r.ms || []).forEach(i => { const e = S.esc[r.dealId + ':' + i]; if (!e || e.pay !== r.pay) bad.push('receipt ' + r.id + ' charged for milestone ' + (i + 1) + ' of ' + r.dealId + ', which ' + (e ? 'another payment funded' : 'is not funded')); });
   });
-  Object.keys(S.esc).forEach(k => { const e = S.esc[k]; if (e && e.pay && !byPay[e.pay]) bad.push('escrow ' + k + ' was funded without a receipt'); });
+  Object.keys(S.esc).forEach(k => {
+    const e = S.esc[k];
+    if (!e || !e.pay) return;
+    const r = byPay[e.pay];
+    if (!r) { bad.push('escrow ' + k + ' was funded without a receipt'); return; }
+    if (!(r.ms || []).includes(+k.slice(k.lastIndexOf(':') + 1))) bad.push('escrow ' + k + ' is held by a payment whose receipt doesn\'t charge for it');
+    // a receipt is paid exactly when its money is in escrow
+    if ((r.st === 'paid') !== (e.st === 'in escrow')) bad.push('escrow ' + k + ' is ' + e.st + ' but its receipt says ' + r.st);
+  });
   // shared deals: split, funding, proofs
   const legacy = S.inv.length > 0 && !S.inv.some(r => r.dealId);
   S.deals.forEach(d => {
@@ -37,8 +45,11 @@ const INVARIANTS = () => {
     Object.keys(byIdx).forEach(i => {
       const ps = byIdx[i], live = ps.filter(p => p.status === 'review' || p.status === 'releasing' || p.status === 'released');
       if (live.length > 1) bad.push('deal ' + d.id + ' deliverable ' + i + ' has ' + live.length + ' live proofs');
-      const e = S.esc[d.id + ':' + i];
-      if (live.length && (!e || e.st !== 'in escrow')) bad.push('deal ' + d.id + ' deliverable ' + i + ' has proof but its money is ' + (e ? e.st : 'not funded'));
+      // money moves only from escrow: a proof being paid or paid sits on money in escrow. A proof in review sits on money that is
+      // funded (when two payments for it met, the one that stands may still be clearing; the proof then waits)
+      const e = S.esc[d.id + ':' + i], paying = live.filter(p => p.status !== 'review');
+      if (paying.length && (!e || e.st !== 'in escrow')) bad.push('deal ' + d.id + ' deliverable ' + i + ' has a proof ' + paying[0].status + ' but its money is ' + (e ? e.st : 'not funded'));
+      if (live.length && !e) bad.push('deal ' + d.id + ' deliverable ' + i + ' has proof but its money is not funded');
       ps.forEach(p => { if (C(p.value) !== C(d.milestones[i].amt)) bad.push('proof ' + p.id + ' value ' + p.value + ' differs from its milestone'); });
       ps.forEach(p => { if (p.status === 'released' && !p.relAt) bad.push('proof ' + p.id + ' released without a date'); if (p.status === 'releasing' && !p.releaseAt) bad.push('proof ' + p.id + ' releasing without a window'); });
     });

@@ -69,10 +69,9 @@ function ledger(deal, raw) {
     return { ...m, i, st: e ? e.st : m.st, fundedNow: !!e, ts: e && e.ts };
   });
   if (deal.perItem) {
-    // shared deals: a milestone is released when the latest proof for its deliverable is released
-    const last = {};
-    S.proofs.filter(p => p.dealId === deal.id).forEach(p => { if (!last[p.idx] || p.at > last[p.idx].at) last[p.idx] = p; });
-    ms.forEach(m => { const p = last[m.i]; if (p && p.status === 'released' && m.st === 'in escrow') m.st = 'released'; m.partC = 0; });
+    // shared deals: a milestone is released when a proof for its deliverable is released (the rules allow one)
+    const rel = new Set(S.proofs.filter(p => p.dealId === deal.id && p.status === 'released').map(p => p.idx));
+    ms.forEach(m => { if (rel.has(m.i) && m.st === 'in escrow') m.st = 'released'; m.partC = 0; });
   } else {
     // seeded deals: approved proofs release money from escrow in milestone order. Anything released beyond what was in
     // escrow is kept as overC, so a check can fail on it instead of it disappearing into a capped total

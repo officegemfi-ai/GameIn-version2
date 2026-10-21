@@ -393,6 +393,200 @@ test.describe('saved data', () => {
     await other.close();
   });
 
+  // ---- longer collisions: one tab keeps acting while the other can't see it (found by an independent stress test)
+  test('D2 two bank payments for the same milestone, and the second clears in a tab that can\'t see the first: the first stands, the proof waits', async ({ page, context }) => {
+    const id = await A.makeDeal(page, 'b3', 'Bank twice', 300, ['Launch stream', 'Recap clip']);
+    const other = await secondTab(context);
+    await A.waitFor(other, i => GameInBX.S.deals.some(d => d.id === i), id);
+    const first = t => A.api(t, 'fund', id, 'next', 'pm2');
+    const secondClearsAndUploads = async t => { await A.api(t, 'fund', id, 'next', 'pm2'); expect(await A.api(t, 'clear', id, 0)).toBe(true); return A.api(t, 'upload', id); };
+    const [, pid] = await sameMoment(page, other, first, secondClearsAndUploads);
+    expect(pid).toBeTruthy();
+    const v = await inStep([page, other]);
+    // the bank payment made first pays milestone 1 and is still clearing; the second one paid nothing, so its receipt is gone
+    expect((v.esc[id + ':0'] || {}).st).toBe('processing');
+    expect(v.inv.filter(r => r.dealId === id).map(r => [r.ms, r.amt, r.st])).toEqual([[[0], 157.5, 'processing']]);
+    // the proof waits in review until that payment clears; then the brand can approve it, and the creator is paid once
+    expect(v.proofs.find(p => p[0] === pid)[1]).toBe('review');
+    expect(await A.api(page, 'approve', pid)).toBe(false);
+    expect(await A.api(page, 'clear', id, 0)).toBe(true);
+    expect(await A.api(page, 'approve', pid)).toBe(true);
+    await A.waitFor(page, i => GameInBX.S.proofs.find(p => p.id === i).status === 'released', pid, 12000);
+    const r = await A.checkMoney(page, { bids: ['b3'], deals: [id] });
+    expect(r.net).toBe(14250);
+    await other.close();
+  });
+
+  test('D2 a payment trimmed by a merge clears later in the tab that made it: every milestone is charged once, by the same payment in every tab', async ({ page, context }) => {
+    const id = await A.makeDeal(page, 'b3', 'Clears later', 301.01, ['Launch stream', 'Recap clip', 'Wrap-up']);
+    const other = await secondTab(context);
+    await A.waitFor(other, i => GameInBX.S.deals.some(d => d.id === i), id);
+    await A.api(other, 'me');
+    await A.api(other, 'hold', true);
+    expect((await A.api(page, 'fund', id, 'next', 'pm2')).st).toBe('processing');   // bank, milestone 1
+    expect((await A.api(other, 'fund', id, 'all', 'pm2')).st).toBe('processing');   // bank, everything, without seeing it
+    await A.api(page, 'say', 'b3', 'brand', 'the first tab takes in the second');
+    expect(await A.api(other, 'clear', id, 2)).toBe(true);                           // the second tab marks its payment received
+    await A.api(other, 'say', 'b3', 'creator', 'the second tab catches up');
+    await A.api(other, 'hold', false);
+    await page.waitForTimeout(400);
+    const tabs = [page, other], views = [];
+    for (const t of tabs) { await A.api(t, 'me'); expect(await A.rulesHold(t)).toEqual([]); views.push(await t.evaluate(VIEW)); }
+    expect(views[1]).toEqual(views[0]);
+    const v = views[0];
+    // milestone 1: the bank payment made first, still clearing. Milestones 2 and 3: the second payment, received
+    expect([0, 1, 2].map(k => v.esc[id + ':' + k].st)).toEqual(['processing', 'in escrow', 'in escrow']);
+    const inv = v.inv.filter(r => r.dealId === id).sort((x, y) => x.ts - y.ts).map(r => ({ ms: r.ms, base: r.base, fee: r.fee, amt: r.amt, st: r.st }));
+    expect(inv).toEqual([{ ms: [0], base: 100.33, fee: 5.02, amt: 105.35, st: 'processing' }, { ms: [1, 2], base: 200.68, fee: 10.03, amt: 210.71, st: 'paid' }]);
+    await A.checkMoney(page, { bids: ['b3'], deals: [id] });
+    await other.close();
+  });
+
+  test('D2 the same offer accepted at two versions in two tabs: the acceptance that went further stands, with its deal and payment', async ({ page, context }) => {
+    const o = await A.api(page, 'send', { bid: 'b3', title: 'Two versions', amt: 240, items: [{ label: 'Stream', days: 3 }, { label: 'Clip', days: 5 }] });
+    const other = await secondTab(context);
+    await A.waitFor(other, i => GameInBX.S.offers.some(x => x.id === i), o.id);
+    // one tab: the creator counters at $300 and the brand accepts. The other, without seeing it: the creator accepts the $240 offer
+    // and the brand pays for the whole deal by card
+    const counterAccepted = async t => [await A.api(t, 'creator', o.id, 'counter', 300), await A.api(t, 'brandAccept', o.id)];
+    const acceptedAndPaid = async t => { await A.api(t, 'creator', o.id, 'accept'); const did = await t.evaluate(i => GameInBX.S.offers.find(x => x.id === i).dealId, o.id); return (await A.api(t, 'fund', did, 'all', 'pm1')).st; };
+    const [a, b] = await sameMoment(other, page, counterAccepted, acceptedAndPaid);
+    expect(a).toEqual([true, true]);
+    expect(b).toBe('in escrow');
+    const v = await inStep([page, other]);
+    const off = v.offers.find(x => x[0] === o.id);
+    expect(off.slice(1, 3)).toEqual(['accepted', 1]);
+    expect(v.deals.filter(d => d[2] === o.id)).toEqual([[off[3], 240, o.id]]);
+    expect(v.inv.filter(r => r.dealId === off[3]).map(r => [r.ms, r.amt, r.st])).toEqual([[[0, 1], 252, 'paid']]);
+    await A.checkMoney(page, { bids: ['b3'], deals: [off[3]] });
+    await other.close();
+  });
+
+  test('D2 R3 a renewal request accepted and paid for in one tab and declined in another: the acceptance stands, with its payment', async ({ page, context }) => {
+    expect(await A.api(page, 'renew', 'sp1', 'request', { months: 3, price: 1500, brand: 'HYPERCORE' })).toBe('');
+    const other = await secondTab(context);
+    await A.waitFor(other, () => (GameInBX.S.ren.sp1 || {}).st === 'requested');
+    const decline = t => A.api(t, 'renew', 'sp1', 'answer', { by: 'brand', st: 'declined' });
+    const acceptAndPay = async t => { expect(await A.api(t, 'renew', 'sp1', 'answer', { by: 'brand', st: 'accepted' })).toBe(''); return (await A.api(t, 'fund', 'sp1', 'all', 'pm1')).st; };
+    const [, paid] = await sameMoment(page, other, decline, acceptAndPay);
+    expect(paid).toBe('in escrow');
+    const v = await inStep([page, other]);
+    expect(v.ren.sp1.st).toBe('accepted');
+    // August and the three renewal months are in escrow: $6,000 plus 5% of the deal's running total, $6,300.00
+    expect([2, 3, 4, 5].map(k => (v.esc['sp1:' + k] || {}).st)).toEqual(['in escrow', 'in escrow', 'in escrow', 'in escrow']);
+    expect(v.inv.filter(r => r.dealId === 'sp1').map(r => [r.ms, r.amt])).toEqual([[[2, 3, 4, 5], 6300]]);
+    await A.checkMoney(page, { bids: ['b2'], deals: ['sp1'] });
+    await other.close();
+  });
+
+  test('D2 one tab saves a dozen times while the other clears a payment, gets proof and pays it out: nothing is undone', async ({ page, context }) => {
+    // the second tab is open before the deal exists, so the last state both tabs saw is the one with the bank payment
+    const other = await secondTab(context);
+    await page.waitForTimeout(500);
+    const id = await A.makeDeal(page, 'b3', 'Busy brand', 300, ['Launch stream', 'Recap clip']);
+    await A.api(page, 'fund', id, 'next', 'pm2');
+    await A.waitFor(other, i => (GameInBX.S.esc[i + ':0'] || {}).st === 'processing', id);
+    await A.api(page, 'me');
+    await A.api(other, 'me');
+    await A.api(page, 'hold', true);
+    await A.api(other, 'hold', true);
+    for (let i = 0; i < 12; i++) await A.api(page, 'say', 'b3', 'brand', 'note ' + i);
+    expect(await A.api(other, 'clear', id, 0)).toBe(true);
+    const pid = await A.api(other, 'upload', id);
+    expect(await A.api(other, 'approve', pid)).toBe(true);
+    await other.waitForTimeout(7500);
+    expect(await other.evaluate(i => GameInBX.S.proofs.find(p => p.id === i).status, pid)).toBe('released');
+    await A.api(page, 'say', 'b3', 'creator', 'sent from the first tab');
+    await A.api(other, 'say', 'b3', 'brand', 'sent from the second tab');
+    await A.api(page, 'hold', false);
+    await A.api(other, 'hold', false);
+    await page.waitForTimeout(500);
+    const v = await inStep([page, other]);
+    expect((v.esc[id + ':0'] || {}).st).toBe('in escrow');
+    expect(v.proofs.find(p => p[0] === pid)[1]).toBe('released');
+    expect(v.msgs.filter(t => /^note \d+$/.test(t)).length).toBe(12);
+    const r = await A.checkMoney(page, { bids: ['b3'], deals: [id] });
+    expect(r.net).toBe(14250);
+    await other.close();
+  });
+
+  test('D2 P6 a proof sent back for changes in a tab that missed the first upload: the first stays in review, no second upload, paid once', async ({ page, context }) => {
+    const id = await A.makeDeal(page, 'b3', 'Paid twice?', 300, ['Launch stream', 'Recap clip']);
+    await A.api(page, 'fund', id, 'next', 'pm1');
+    const other = await secondTab(context);
+    await A.waitFor(other, i => (GameInBX.S.esc[i + ':0'] || {}).st === 'in escrow', id);
+    await A.api(other, 'me');
+    await A.api(other, 'hold', true);
+    const p1 = await A.api(page, 'upload', id);                       // the creator uploads in one tab
+    const p2 = await A.api(other, 'upload', id);                      // the other tab hasn't seen it and uploads too
+    expect(await A.api(other, 'changes', p2)).toBe(true);             // and the brand sends that copy back for changes
+    await A.api(other, 'hold', false);
+    await page.waitForTimeout(400);
+    await A.api(page, 'me');
+    expect(await A.rulesHold(page)).toEqual([]);
+    // the first upload is still the deliverable's proof: no new upload for it (and the next deliverable isn't funded)
+    expect(await A.api(page, 'upload', id)).toBe(null);
+    expect(await A.api(page, 'approve', p2)).toBe(false);
+    expect(await A.api(page, 'approve', p1)).toBe(true);
+    await A.waitFor(page, i => GameInBX.S.proofs.find(p => p.id === i).status === 'released', p1, 12000);
+    await page.waitForTimeout(1500);
+    expect(await page.evaluate(i => GameInBX.api.releases().filter(r => r.dealId === i).length, id)).toBe(1);
+    const r = await A.checkMoney(page, { bids: ['b3'], deals: [id] });
+    expect(r.net).toBe(14250);
+    await other.close();
+  });
+
+  test('D2 M2 two payments on a seeded deal at the same moment, for different milestones: fees on the running total, to the cent', async ({ page, context }) => {
+    // ORBITAL AUDIO renews for $100.12; the recap bonus and the renewal are then paid for in two tabs at the same moment
+    expect(await A.api(page, 'renew', 'sp3', 'request', { months: 1, price: 100.12, brand: 'ORBITAL AUDIO' })).toBe('');
+    expect(await A.api(page, 'renew', 'sp3', 'answer', { by: 'brand', st: 'accepted' })).toBe('');
+    const other = await secondTab(context);
+    await A.waitFor(other, () => (GameInBX.S.ren.sp3 || {}).st === 'accepted');
+    const bonus = t => A.api(t, 'fundIdx', 'sp3', [2], 'pm1'), renewal = t => A.api(t, 'fundIdx', 'sp3', [3], 'pm1');
+    const [a, b] = await sameMoment(page, other, bonus, renewal);
+    expect(a.st && b.st).toBe('in escrow');
+    const v = await inStep([page, other]);
+    // $430.72 was funded before; 5% of the running total: $5.38 for the bonus, then $5.01 for the renewal, $10.39 together, as at once
+    const inv = v.inv.filter(r => r.dealId === 'sp3').sort((x, y) => x.ts - y.ts).map(r => [r.ms, r.base, r.fee, r.amt]);
+    expect(inv).toEqual([[[2], 107.68, 5.38, 113.06], [[3], 100.12, 5.01, 105.13]]);
+    await A.checkMoney(page, { bids: ['b5'], deals: ['sp3'] });
+    await other.close();
+  });
+
+  test('D2 a tab that lost track of where both tabs started still keeps both tabs\' changes', async ({ page, context }) => {
+    const id = await A.makeDeal(page, 'b3', 'Lost track', 300, ['Launch stream', 'Recap clip']);
+    const other = await secondTab(context);
+    await A.waitFor(other, i => GameInBX.S.deals.some(d => d.id === i), id);
+    await A.api(page, 'forget');
+    const pay = t => A.api(t, 'fund', id, 'next', 'pm1'), offer = t => A.api(t, 'send', { bid: 'b4', title: 'Kept too', amt: 90, items: [{ label: 'Post', days: 4 }] });
+    const [paid, sent] = await sameMoment(page, other, pay, offer);
+    expect(paid.st).toBe('in escrow');
+    const views = [];
+    for (const t of [page, other]) { await A.api(t, 'me'); expect(await A.rulesHold(t)).toEqual([]); views.push(await t.evaluate(VIEW)); }
+    expect(views[1]).toEqual(views[0]);
+    expect(views[0].esc[id + ':0'].st).toBe('in escrow');
+    expect(views[0].offers.some(x => x[0] === sent.id)).toBe(true);
+    expect(views[0].msgs).toEqual(expect.arrayContaining(['sent from the first tab', 'sent from the second tab']));
+    expect((await A.api(page, 'merges')).storeBlind).toBeGreaterThan(0);
+    await A.checkMoney(page, { bids: ['b3'], deals: [id] });
+    await other.close();
+  });
+
+  test('D2 P7 a seeded proof is saved once, with its share, and approved with its date in the same save', async ({ page }) => {
+    // every save of the seeded deals' proofs, as the other tab would read it
+    await page.evaluate(() => { window.__loopSaves = []; const set = Storage.prototype.setItem; Storage.prototype.setItem = function (k, v) { if (k === 'gib-loop') window.__loopSaves.push(v); return set.call(this, k, v); }; });
+    const pid = await A.api(page, 'seedUpload', 'sp1');
+    const share = await page.evaluate(i => GameInLoop.S.proofs.find(p => p.id === i).value, pid);
+    expect(A.M.C(share)).toBe(37500);
+    await page.evaluate(i => GameInLoop.approve(i), pid);
+    const saves = await page.evaluate(i => window.__loopSaves.map(v => (JSON.parse(v).proofs || []).find(p => p.id === i)).filter(Boolean), pid);
+    expect(saves.length).toBeGreaterThan(0);
+    // never another value, and never released without its date
+    expect(saves.filter(p => A.M.C(p.value) !== 37500)).toEqual([]);
+    expect(saves.filter(p => p.status === 'released' && !p.relAt)).toEqual([]);
+    expect(saves[saves.length - 1].status).toBe('released');
+  });
+
   test('D3 reset demo clears everything, in every open tab', async ({ page, context }) => {
     const id = await A.makeDeal(page, 'b3', 'Before reset', 100, ['Clip']);
     await A.api(page, 'fund', id, 'all', 'pm1');

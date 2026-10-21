@@ -50,14 +50,14 @@ Both seats can be open in two tabs of one browser. Every save carries a revision
 
 When both tabs change the same thing at once, the merge settles it before anything is saved:
 
-- An acceptance stands over a counter, a decline or a withdrawal made at the same moment, and a deal exists only for an accepted offer.
-- Two payments for the same milestone: the milestone is paid once, by the payment already in escrow, or else the one made first. The other payment keeps its other milestones and its receipt charges only for those, with the fees worked out again on the deal's running total. Nothing is charged twice, and a milestone a tab saw in escrow stays in escrow, so proof uploaded against it keeps its money.
-- One live proof per deliverable: the most advanced one stays (released, then releasing, then in review), otherwise the first upload. Nothing is paid twice.
+- Offers: an acceptance stands over a counter, a decline or a withdrawal made at the same moment, and a deal exists only for an accepted offer. An offer accepted at two different versions (one in each tab) keeps the acceptance that went further (a payout, then proof, then money paid), else the earlier one, with that side's deal, payments and proofs.
+- Renewals: an acceptance stands over a decline made at the same moment.
+- Payments are the record of what was paid, and escrow follows from them. Each milestone is paid by one payment: a card payment (in escrow at once) over a bank or wire payment, then the one made first. That answer never changes later, so every tab agrees at every merge. The other payment keeps its other milestones and its receipt charges only for those; a payment for a milestone the deal no longer has pays for nothing; a clear in either tab stands; fees are worked out again on each deal's running total, in payment order. Nothing is charged twice and nothing sits in escrow unpaid for.
+- Proofs: one live proof per deliverable, the most advanced one (released, then releasing, then in review), otherwise the first upload. A deliverable takes its state from that proof, so no second upload slips in, and approving needs the deliverable's money in escrow and nothing else paid for it, checked again when the undo window ends. Nothing is paid twice, and no merge can release money that isn't there.
 - Otherwise the tab that takes in the other's save keeps its own move: in practice the move saved first (approve against request changes, for example).
 - If a tab can't find the state both saves started from, it keeps everything both tabs hold rather than dropping either one's changes.
-- And approving needs the deliverable's money in escrow, checked again when the undo window ends, so no merge can release money that isn't there.
 
-`tests/08-data.spec.js` has both tabs write as fast as they can at the same time and checks that nothing is lost. It then plays each of those collisions in both orders: each tab is held back from the other's saves (`GameInBX.api.hold`, standing in for the browser holding them back while a tab is writing), both act, both catch up, and the test checks that the two tabs and what's saved agree, every rule holds, and the money is right to the cent.
+`tests/08-data.spec.js` has both tabs write as fast as they can at the same time and checks that nothing is lost. It then plays each of those collisions in both orders, plus longer ones an independent stress test found: one tab saving a dozen times while the other clears a payment and pays out, a payment trimmed by one merge clearing later, a proof sent back for changes in a tab that missed the first upload, an offer accepted at two versions, a renewal accepted and declined at once. Each tab is held back from the other's saves (`GameInBX.api.hold`, standing in for the browser holding them back while a tab is writing), both act, both catch up, and the test checks that the two tabs and what's saved agree, every rule holds, and the money is right to the cent.
 
 ## Every button
 
@@ -70,3 +70,5 @@ When both tabs change the same thing at once, the merge settles it before anythi
 ## What isn't covered
 
 The prototype has no server: data lives in the browser's local storage, so "both sides" means two seats or two tabs in one browser, not two people on two devices. Payments, bank clearing and wires are simulated (`clears (demo)`, `received (demo)`).
+
+Without a server, two tabs can only be reconciled after the fact. If both tabs make several money moves on the same deal while neither can see the other (possible only while the browser holds one tab's updates back), one side's moves stand when the tabs meet and the other side's are undone, a payout made on that side included. The rules above keep the money consistent through that; a server, where each payment and release is one transaction, prevents it.

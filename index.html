@@ -1249,7 +1249,7 @@ const GBX=(()=>{if(window.GameInBX)return window.GameInBX;const K="gib-bx";let S
  S.pm=S.pm||[{id:"pm1",kind:"card",brand:"Visa",last4:"4242",exp:"08/28",def:!0},{id:"pm2",kind:"bank",brand:"Chase",last4:"6789",verified:!0}];
  S.bill=S.bill||{legal:"",email:"",tax:"",addr:"",country:"United States"};
  /* v62: a release still inside its undo window survives a reload; it completes when the window runs out */
- S.proofs.forEach(p=>{if(p.status==="releasing"&&(p.releaseAt||0)<Date.now()){if(!bxHeldFor(S,p)){p.status="review";delete p.releaseAt;return}p.status="released";p.relAt=p.releaseAt||Date.now();delete p.releaseAt}});
+ S.proofs.forEach(p=>{if(p.status==="releasing"&&(p.releaseAt||0)<Date.now()){if(!bxHeldFor(S,p)||bxPaidFor(S,p)){p.status="review";delete p.releaseAt;return}p.status="released";p.relAt=p.releaseAt||Date.now();delete p.releaseAt}});
  const subs=new Set(),note=()=>subs.forEach(f=>{try{f()}catch(e){}});
  const norm=n=>{["esc","ren","rate","off","msg","read","readAt","cmsg","cread","crate"].forEach(k=>{n[k]=n[k]||{}});["inv","sent","offers","deals","proofs"].forEach(k=>{n[k]=n[k]||[]});n.pm=n.pm||S.pm;n.bill=n.bill||S.bill;return n};
  /* v62: two tabs stay in step. Every save carries a revision; before every tap, key press, timer and engine call this tab takes in
@@ -1260,7 +1260,7 @@ const GBX=(()=>{if(window.GameInBX)return window.GameInBX;const K="gib-bx";let S
  window.addEventListener("storage",e=>{if(e.key!==K&&e.key!==null)return;if(e.newValue==null){location.reload();return}pull()});
  ["pointerdown","keydown"].forEach(t=>document.addEventListener(t,pull,!0));
  /* v62: a release whose undo window ran out completes in whichever tab is open, dated when the window ended */
- setInterval(()=>{pull();const now=Date.now();let n=0;S.proofs.forEach(p=>{if(p.status==="releasing"&&(p.releaseAt||0)<now-1500){n++;if(!bxHeldFor(S,p)){p.status="review";delete p.releaseAt;return}p.status="released";p.relAt=p.releaseAt||now;delete p.releaseAt}});if(n)emit()},1000);
+ setInterval(()=>{pull();const now=Date.now();let n=0;S.proofs.forEach(p=>{if(p.status==="releasing"&&(p.releaseAt||0)<now-1500){n++;if(!bxHeldFor(S,p)||bxPaidFor(S,p)){p.status="review";delete p.releaseAt;return}p.status="released";p.relAt=p.releaseAt||now;delete p.releaseAt}});if(n)emit()},1000);
  return window.GameInBX={S,emit,save,note,pull,sync:sy,on(f){subs.add(f);return()=>subs.delete(f)}}})();
 function bxUse(){const[,fu]=(0,q.useState)(0);(0,q.useEffect)(()=>GBX.on(()=>fu(x=>x+1)),[]);return GBX}
 const BXC=["Communication","Fulfillment","Creativity","Impact","Collaboration","Professionalism"];
@@ -1291,7 +1291,7 @@ function bxDeals(bid,OG,CR,ME,GL){bxSeed3();const P=(GL&&GL.S&&GL.S.proofs)||[],
  let left=Math.round(P.filter(p=>p.dealId===d.id&&p.status==="released").reduce((x,p)=>x+(+p.value||0),0)*100)/100;
  ms.forEach(m=>{if(m.st==="in escrow"&&left>0){const x=Math.min(left,m.amt);left=Math.round((left-x)*100)/100;if(x>=m.amt-.005){m.st="released";m.byProof=1}else m.part=x}});
  let items=null,nextUp=null,waitFund=!1,waitClear=!1;
- if(d.perItem){const last={};BP.forEach(p=>{if(p.dealId===d.id&&(!last[p.idx]||p.at>last[p.idx].at))last[p.idx]=p});
+ if(d.perItem){const last={},rk=p=>p.status==="released"?3:p.status==="releasing"?2:p.status==="review"?1:0;BP.forEach(p=>{if(p.dealId!==d.id)return;const q=last[p.idx];if(!q||rk(p)>rk(q)||(rk(p)===rk(q)&&p.at>q.at))last[p.idx]=p});
   ms.forEach((m,i)=>{const p=last[i];if(p&&p.status==="released"&&m.st==="in escrow"){m.st="released";m.byProof=1}});
   items=(d.deliverables||[]).map((it,i)=>{const p=last[i];return p?{...it,status:p.status==="released"?"done":p.status==="changes"?"changes":"review",proof:p.status==="released",pf:p}:it});
   items.forEach((it,i)=>{const m=ms[i];if(nextUp==null&&m&&m.st==="in escrow"&&it.status!=="done"&&it.status!=="review")nextUp=i;if(it.status!=="done"&&m&&m.st==="pending")waitFund=!0;if(it.status!=="done"&&m&&(m.st==="processing"||m.st==="awaiting wire"))waitClear=!0})}
@@ -1358,8 +1358,9 @@ function bxUpload(d0,NT){const d=bxDealNow(d0.id)||d0,i=d.nextUp;if(i==null||(d0
  const p={id:bxUid("bp"),dealId:d.id,bid:d.brandId,creator:d.cr&&d.cr.name||"Creator",deal:d.title,item:it.label,idx:i,n:d.items.length,value:m.amt,status:"review",at:now};GBX.S.proofs.unshift(p);GBX.emit();NT&&NT((d.cr&&d.cr.name||"The creator")+" uploaded proof: "+it.label+". It's in approvals.");return p}
 function bxRelease(p0,NT){const id=p0&&p0.id,pf=()=>GBX.S.proofs.find(x=>x.id===id),p=pf();if(!p||p.status!=="review"){NT&&NT(p&&p.status==="released"?"Already released":p&&p.status==="releasing"?"Already releasing":"This proof isn't waiting for approval");return!1}
  if(!bxHeldFor(GBX.S,p)){NT&&NT("The money for "+p.item+" isn't in escrow yet. You can approve it once it is.");return!1}
+ if(bxPaidFor(GBX.S,p)){NT&&NT(p.item+" is already paid for");return!1}
  const ra=Date.now()+6e3;p.status="releasing";p.releaseAt=ra;GBX.emit();
- setTimeout(()=>{GBX.pull&&GBX.pull();const p=pf();if(!p||p.status!=="releasing"||p.releaseAt!==ra)return;if(!bxHeldFor(GBX.S,p)){p.status="review";delete p.releaseAt;GBX.emit();return}p.status="released";p.relAt=ra;delete p.releaseAt;const got=new Set(GBX.S.proofs.filter(x=>x.dealId===p.dealId&&x.status==="released").map(x=>x.idx));GBX.emit();
+ setTimeout(()=>{GBX.pull&&GBX.pull();const p=pf();if(!p||p.status!=="releasing"||p.releaseAt!==ra)return;if(!bxHeldFor(GBX.S,p)||bxPaidFor(GBX.S,p)){p.status="review";delete p.releaseAt;GBX.emit();return}p.status="released";p.relAt=ra;delete p.releaseAt;const got=new Set(GBX.S.proofs.filter(x=>x.dealId===p.dealId&&x.status==="released").map(x=>x.idx));GBX.emit();
   NT&&NT(got.size>=(p.n||1)?p.deal+" is complete. Everything is released, so rate "+p.creator+" next.":"Released "+Se(p.value)+" to "+p.creator);
   const G=window.GameInBrand;if(p.creator===bxMe().name&&G&&G.paid)G.paid({value:p.value})},6e3);return!0}
 function bxUndoRelease(p0){const p=GBX.S.proofs.find(x=>x.id===(p0&&p0.id));if(p&&p.status==="releasing"){p.status="review";delete p.releaseAt;GBX.emit();return!0}return!1}
@@ -1820,7 +1821,7 @@ function bxCreatorProofs(e,h,icon){const mn=bxMe().name,L=window.GameInLoop,P=(e
  L.released=()=>bxMeNet();L.txs=()=>bxMeTx();
  /* a release is dated when its undo window ended, the same in every tab */
  const quiet=f=>{L._quiet=1;try{return f()}finally{L._quiet=0}};
- L.approve=(id,at)=>{const p=L.S.proofs.find(x=>x.id===id);if(!p||p.status!=="review")return;quiet(()=>a0(id));const x=L.S.proofs.find(y=>y.id===id);if(x&&x.status==="released")x.relAt=at||Date.now();L.emit()};
+ L.approve=(id,at)=>{const p=L.S.proofs.find(x=>x.id===id);if(!p||p.status!=="review")return;if(L.S.proofs.some(x=>x.id!==id&&x.dealId===p.dealId&&x.item===p.item&&(x.ci==null?p.ci==null:x.ci===p.ci)&&(x.status==="released"||x.status==="releasing")))return;quiet(()=>a0(id));const x=L.S.proofs.find(y=>y.id===id);if(x&&x.status==="released")x.relAt=at||Date.now();L.emit()};
  L.approveLater=(id,ms)=>{ms=ms||8000;const p=L.S.proofs.find(x=>x.id===id);if(!p||p.status!=="review")return;const ra=Date.now()+ms;p.status="releasing";p.releaseAt=ra;L.emit();
   setTimeout(()=>{L.pull&&L.pull();const x=L.S.proofs.find(y=>y.id===id);if(x&&x.status==="releasing"&&x.releaseAt===ra){x.status="review";delete x.releaseAt;x.relAt=ra;L.approve(id,ra)}},ms)};
  L.cancelRelease=id=>{const p=L.S.proofs.find(x=>x.id===id);if(!p||p.status!=="releasing")return;p.status="review";delete p.releaseAt;L.emit()};
@@ -1854,35 +1855,69 @@ function bxMerge3(b,m,t,d){d=d||0;const J=JSON.stringify,jm=J(m),jt=J(t);if(jm==
    if(!(hb&&J(B[k])===J(t[k])))out[k]=t[k]});return out}
  return m}
 /* After a merge, the rules hold again before anything is saved:
-   - an offer both tabs changed at once: an acceptance stands over a counter, a decline or a withdrawal, and a deal exists only for an accepted offer
-   - two payments for the same milestone: the milestone is paid once, by the payment already in escrow, else the one made first. The other
-     payment keeps its other milestones and its receipt charges only for those; fees are worked out again on the deal's running total,
-     in payment order. So nothing is charged twice, and a milestone a tab saw in escrow (and the creator may have delivered on) stays in escrow
+   - offers: an acceptance stands over a counter, a decline or a withdrawal made at the same moment. Accepted at two different versions
+     (one in each tab): the acceptance that has gone further stands (a payout, then proof, then money paid), else the earlier one; that
+     side's deal, payments and proofs are kept for it. A deal exists only for an accepted offer
+   - renewals: an acceptance stands over a decline made at the same moment
+   - payments are the record of what was paid; escrow follows from them. A milestone is paid by one payment: a card payment (in escrow at
+     once) over a bank or wire payment, then the earlier one, then the lower id. That never changes later, so every tab and every later
+     merge agrees. A payment keeps the milestones it pays and its receipt charges only for those; a payment for a milestone the deal no
+     longer has (an offer version or a renewal that didn't stand) pays for nothing. A clear in either tab stands. Fees are worked out
+     again on each deal's running total, in payment order
    - one live proof per deliverable: the most advanced one stays (released, then releasing, then in review), else the first upload */
-function bxFixAll(M,mine,theirs){bxFixOffers(M,mine,theirs);bxFixFunds(M,mine,theirs);bxFixProofs(M)}
-function bxFixOffers(M,mine,theirs){if(!M||!Array.isArray(M.offers))return;const by=a=>new Map(((a&&a.offers)||[]).map(o=>[o.id,o])),mm=by(mine),tm=by(theirs);
- M.offers=M.offers.map(o=>{if(o.status==="accepted")return o;const a=[mm.get(o.id),tm.get(o.id)].find(x=>x&&x.status==="accepted");return a||o});
+function bxFixAll(M,mine,theirs){bxFixOffers(M,mine,theirs);bxFixRen(M,mine,theirs);bxFixFunds(M,mine,theirs);bxFixProofs(M)}
+function bxFixOffers(M,mine,theirs){if(!M||!Array.isArray(M.offers))return;const by=a=>new Map(((a&&a.offers)||[]).map(o=>[o.id,o])),mm=by(mine),tm=by(theirs),acc=o=>!!o&&o.status==="accepted",C=x=>Math.round((+x||0)*100);
+ const prog=(st,id)=>{const P=((st&&st.proofs)||[]).filter(p=>p.dealId===id),R=((st&&st.inv)||[]).filter(r=>r.dealId===id);return[P.filter(p=>p.status==="released").length,P.filter(p=>p.status==="releasing"||p.status==="review").length,R.reduce((x,r)=>x+C(r.base),0)]};
+ const ahead=(x,y)=>{for(let i=0;i<x.length;i++)if(x[i]!==y[i])return x[i]>y[i]?1:-1;return 0},keepFrom={};
+ M.offers=M.offers.map(o=>{const a=mm.get(o.id),b=tm.get(o.id);
+  if(acc(a)&&acc(b)&&a.versions.length!==b.versions.length){const c=ahead(prog(mine,a.dealId),prog(theirs,b.dealId)),w=c>0||(c===0&&(a.acceptedAt||0)<=(b.acceptedAt||0))?"m":"t";keepFrom[(w==="m"?a:b).dealId]=w==="m"?mine:theirs;return w==="m"?a:b}
+  if(acc(o))return o;return[a,b].find(acc)||o});
+ /* a deal accepted at two versions: that deal, its payments and its proofs come from the side whose acceptance stands */
+ Object.keys(keepFrom).forEach(id=>{const st=keepFrom[id],d=((st&&st.deals)||[]).find(x=>x.id===id),ids=a=>new Set(((st&&st[a])||[]).filter(x=>x&&x.dealId===id).map(x=>x.id));
+  if(d&&Array.isArray(M.deals))M.deals=M.deals.map(x=>x.id===id?d:x);const pi=ids("proofs"),ri=ids("inv");
+  if(Array.isArray(M.proofs))M.proofs=M.proofs.filter(p=>p.dealId!==id||pi.has(p.id));if(Array.isArray(M.inv))M.inv=M.inv.filter(r=>r.dealId!==id||ri.has(r.id))});
  if(Array.isArray(M.deals)){const of=new Map(M.offers.map(o=>[o.id,o]));M.deals=M.deals.filter(d=>{const o=d.fromOffer&&of.get(d.fromOffer);return!o||(o.status==="accepted"&&o.dealId===d.id)})}}
-function bxFixFunds(S,mine,theirs){if(!S||!S.esc||!Array.isArray(S.inv))return;const E=S.esc,touched=new Set(),dk=k=>k.slice(0,k.lastIndexOf(":"));
- /* the milestone's payment: the one in escrow over one still clearing, else the earlier one, else the lower id. The same in every tab */
- const far=x=>x&&x.st==="in escrow"?1:0,win=(a,b)=>far(a)!==far(b)?(far(a)>far(b)?a:b):(a.ts||0)!==(b.ts||0)?((a.ts||0)<(b.ts||0)?a:b):(String(a.pay)<=String(b.pay)?a:b);
- const me=(mine&&mine.esc)||{},th=(theirs&&theirs.esc)||{};
- Object.keys(E).forEach(k=>{const a=me[k],b=th[k];if(a&&b&&a.pay&&b.pay&&a.pay!==b.pay){E[k]=win(a,b);touched.add(dk(k))}});
- /* each receipt charges for the milestones its payment still holds; one that holds none is gone */
- S.inv=S.inv.filter(r=>{if(!r||!r.pay||!Array.isArray(r.ms))return!0;const keep=r.ms.filter(i=>{const x=E[r.dealId+":"+i];return!!x&&x.pay===r.pay});if(keep.length===r.ms.length)return!0;touched.add(r.dealId);if(!keep.length)return!1;
-  if(Array.isArray(r.amts)&&r.amts.length===r.ms.length){const am=keep.map(i=>r.amts[r.ms.indexOf(i)]);r.amts=am;r.base=am.reduce((x,c)=>x+c,0)/100}r.ms=keep;return!0});
- /* nothing stays funded by a payment that has no receipt */
- const pays=new Set(S.inv.map(r=>r&&r.pay).filter(Boolean));Object.keys(E).forEach(k=>{const x=E[k];if(x&&x.pay&&!pays.has(x.pay)){delete E[k];touched.add(dk(k))}});
+function bxFixRen(M,mine,theirs){if(!M||!M.ren)return;[mine,theirs].forEach(st=>{const R=(st&&st.ren)||{};Object.keys(R).forEach(id=>{const x=R[id],cur=M.ren[id];
+ if(x&&x.st==="accepted"&&(!cur||cur.st!=="accepted"||(x.accTs||0)<(cur.accTs||0)))M.ren[id]=x})})}
+/* the kind of a payment: card, bank or wire */
+function bxPayKind(r){return r&&r.k?r.k:/wire/i.test((r&&r.method)||"")?"wire":/ACH|bank/i.test((r&&r.method)||"")?"bank":"card"}
+/* the milestones each deal has in a state, in cents: shared deals from the deal itself; the creator's existing deals and the demo's extra
+   deals from their data, plus an accepted renewal's new period. A shared deal that is gone has none; any other deal not found isn't checked */
+function bxMsHave(S){const C=x=>Math.round((+x||0)*100),shared=new Map(((S&&S.deals)||[]).map(d=>[d.id,d]));let raw=[];try{raw=(bxRaw.P||[]).concat(bxExtra("b2",jB))}catch(e){raw=[]}
+ const other=new Map(raw.map(d=>[d.id,d])),memo={};
+ const list=id=>{if(id in memo)return memo[id];let out=null;const d=shared.get(id);
+  if(d)out=(d.milestones||[]).map(m=>C(m.amt));
+  else{const o=other.get(id);if(o){let m0=o.milestones&&o.milestones.length?o.milestones:[{amt:o.amount}];if(o.type!=="monthly"&&!o.perItem){let acc=0;const keep=[];m0.forEach(m=>{if(acc+(+m.amt||0)<=o.amount+.01){keep.push(m);acc+=+m.amt||0}});if(keep.length&&keep.length<m0.length)m0=keep}
+   out=m0.map(m=>C(m.amt));const rn=S&&S.ren&&S.ren[id];if(rn&&rn.st==="accepted"&&!o.perItem)for(let k=0;k<(o.type==="monthly"?rn.months:1);k++)out.push(C(rn.price))}}
+  return memo[id]=out};
+ return(id,i,amtC)=>{const L=list(id);if(!L)return!/^bo_/.test(String(id));return i>=0&&i<L.length&&(amtC==null||L[i]===amtC)}}
+function bxFixFunds(S,mine,theirs){if(!S||!S.esc||!Array.isArray(S.inv))return;const E=S.esc,dk=k=>k.slice(0,k.lastIndexOf(":")),C=x=>Math.round((+x||0)*100),F=c=>Math.round(c/20);
+ /* a clear in either tab stands */
+ const copies=[mine,theirs].map(x=>new Map(((x&&x.inv)||[]).filter(r=>r&&r.id).map(r=>[r.id,r])));
+ S.inv.forEach(r=>{if(!r||!r.pay||r.st==="paid")return;copies.forEach(m=>{const o=m.get(r.id);if(o&&o.st==="paid"&&r.st!=="paid"){r.st="paid";if(o.cts)r.cts=o.cts;if(o.cleared)r.cleared=o.cleared}})});
+ /* who pays each milestone */
+ const has=bxMsHave(S),card=r=>bxPayKind(r)==="card",better=(a,b)=>card(a)!==card(b)?(card(a)?a:b):(a.ts||0)!==(b.ts||0)?((a.ts||0)<(b.ts||0)?a:b):(String(a.pay)<=String(b.pay)?a:b);
+ const all=r=>r.msAll||r.ms||[],amts=r=>r.amtsAll||r.amts||null,win={};
+ S.inv.forEach(r=>{if(!r||!r.pay||!r.dealId||!Array.isArray(all(r)))return;const am=amts(r);all(r).forEach((i,j)=>{if(!has(r.dealId,i,am?am[j]:null))return;const k=r.dealId+":"+i;win[k]=win[k]?better(win[k],r):r})});
+ /* escrow follows the payments: each paid milestone holds the payment that pays it, as that payment stands now */
+ Object.keys(E).forEach(k=>{const x=E[k];if(x&&x.pay&&!win[k])delete E[k]});
+ Object.keys(win).forEach(k=>{const r=win[k],x=E[k],same=!!x&&x.pay===r.pay,st=r.st==="paid"?"in escrow":r.st;if(same&&x.st===st)return;
+  const e={...(same?x:{}),st,method:r.method,ref:r.ref,at:(same&&x.at)||r.date,ts:r.ts,pay:r.pay,k:bxPayKind(r)};if(st==="in escrow"&&r.cts){e.cleared=r.cleared;e.cts=r.cts}E[k]=e});
+ /* each receipt charges for the milestones it pays; one that pays none is gone */
+ S.inv=S.inv.filter(r=>{if(!r||!r.pay||!r.dealId||!Array.isArray(all(r)))return!0;const ms=all(r),am=amts(r),keep=[],ka=[];ms.forEach((i,j)=>{if(win[r.dealId+":"+i]===r){keep.push(i);if(am)ka.push(am[j])}});
+  if(!keep.length)return!1;if(keep.length!==(r.ms||[]).length||keep.some((v,j)=>v!==r.ms[j])){if(!r.msAll){r.msAll=ms.slice();if(am)r.amtsAll=am.slice()}r.ms=keep;if(am){r.amts=ka;r.base=ka.reduce((x,c)=>x+c,0)/100}}return!0});
  /* receipts from before payment ids: kept only while an escrow entry still carries their time */
- const has={};Object.keys(E).forEach(k=>{const x=E[k];if(x&&x.ts)has[dk(k)+"|"+x.ts]=1});S.inv=S.inv.filter(r=>!(r&&r.dealId&&r.ts&&!r.pay)||has[r.dealId+"|"+r.ts]);
- /* fees: 5% of the deal's running total in payment order, from what the deal had funded before (seed0), so two payments made at the same
-    moment cost what one would. Always for shared deals; for the other deals once a payment on them was changed here */
- const shared=new Set((S.deals||[]).map(d=>d.id)),C=x=>Math.round((+x||0)*100),F=c=>Math.round(c/20),by={};
- S.inv.forEach(r=>{if(r&&r.pay&&(shared.has(r.dealId)||touched.has(r.dealId)))(by[r.dealId]=by[r.dealId]||[]).push(r)});
+ const tsOf={};Object.keys(E).forEach(k=>{const x=E[k];if(x&&x.ts)tsOf[dk(k)+"|"+x.ts]=1});S.inv=S.inv.filter(r=>!(r&&r.dealId&&r.ts&&!r.pay)||tsOf[r.dealId+"|"+r.ts]);
+ /* fees: 5% of the deal's running total in payment order, from what the deal had funded before the demo (seed0) */
+ const shared=new Set((S.deals||[]).map(d=>d.id)),by={};
+ S.inv.forEach(r=>{if(r&&r.pay&&r.dealId)(by[r.dealId]=by[r.dealId]||[]).push(r)});
  Object.keys(by).forEach(id=>{const rs=by[id].sort((a,b)=>(a.ts||0)-(b.ts||0)||String(a.id).localeCompare(String(b.id))),s0=shared.has(id)?0:(rs.find(r=>r.seed0!=null)||{}).seed0;if(s0==null)return;
   let run=s0;rs.forEach(r=>{const c1=run+C(r.base),f=F(c1)-F(run);run=c1;if(C(r.fee)!==f||C(r.amt)!==C(r.base)+f){r.fee=f/100;r.amt=(C(r.base)+f)/100}})})}
-/* a shared deal's proof moves money only while that deliverable's money is in escrow */
-function bxHeldFor(S,p){if(!S||!p||!(S.deals||[]).some(d=>d&&d.id===p.dealId))return!0;const e=(S.esc||{})[p.dealId+":"+p.idx];return!!e&&e.st==="in escrow"}
+/* a proof moves money only while its deliverable's money is in escrow: a shared deal's by its escrow entry, any other deal as it stands */
+function bxHeldFor(S,p){if(!S||!p)return!0;if((S.deals||[]).some(d=>d&&d.id===p.dealId)){const e=(S.esc||{})[p.dealId+":"+p.idx];return!!e&&e.st==="in escrow"}
+ try{const d=bxDealNow(p.dealId),m=d&&d.ms&&d.ms[p.idx];return!m||m.st==="in escrow"}catch(e){return!0}}
+/* another proof for the same deliverable is already being paid, or was paid */
+function bxPaidFor(S,p){return((S&&S.proofs)||[]).some(x=>x&&x.id!==p.id&&x.dealId===p.dealId&&x.idx===p.idx&&(x.status==="releasing"||x.status==="released"))}
 function bxFixProofs(S){if(!S||!Array.isArray(S.proofs))return;S.proofs=bxOneLive(S.proofs,p=>p.dealId+":"+p.idx)}
 function bxFixLoop(M){if(!M||!Array.isArray(M.proofs))return;M.proofs=bxOneLive(M.proofs,p=>p.dealId+":"+(p.ci==null?"":p.ci)+":"+p.item)}
 function bxOneLive(list,key){const live=p=>p&&(p.status==="review"||p.status==="releasing"||p.status==="released"),rank=p=>p.status==="released"?3:p.status==="releasing"?2:1,best={};
@@ -1895,8 +1930,9 @@ function bxSyncer(K,get,put,fix,meta){let last=null,rev=null,anchor=null,lastBod
  const body=s=>{if(!s)return null;const r=s._rev,rs=s._revs;s._rev=void 0;s._revs=void 0;const v=J(s);s._rev=r;s._revs=rs;return v};
  const P=s=>{try{return s?JSON.parse(s):null}catch(e){return null}};
  const has=(n,r)=>!!(n&&r)&&(n._rev===r||(n._revs||[]).indexOf(r)>=0);
- const keep=(r,v)=>{if(!r)return;snaps.delete(r);snaps.set(r,v);while(snaps.size>8)snaps.delete(snaps.keys().next().value)};
- const hist=(a,b)=>{const o=[],seen={};[a,b].forEach(n=>{if(n)[n._rev].concat(n._revs||[]).forEach(r=>{if(r&&!seen[r]){seen[r]=1;o.push(r)}})});return o.slice(0,160)};
+ const keep=(r,v)=>{if(!r)return;snaps.delete(r);snaps.set(r,v);while(snaps.size>40)snaps.delete(snaps.keys().next().value)};
+ /* the revisions a state was built on, newest first; after a merge, both tabs' recent ones */
+ const hist=(a,b)=>{const L=[a,b].filter(Boolean).map(n=>[n._rev].concat(n._revs||[])),o=[],seen={};for(let i=0;o.length<160&&L.some(l=>i<l.length);i++)L.forEach(l=>{const r=l[i];if(r&&!seen[r]&&o.length<160){seen[r]=1;o.push(r)}});return o};
  const baseFor=n=>{const ks=Array.from(snaps.keys()).reverse();for(let i=0;i<ks.length;i++)if(has(n,ks[i]))return P(snaps.get(ks[i]));return anchor&&has(n,anchor.r)?P(anchor.v):null};
  const read=()=>{if(held)return last;try{return localStorage.getItem(K)}catch(e){return null}};
  const hash=s=>{let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return"h"+s.length.toString(36)+(h>>>0).toString(36)};
@@ -1913,6 +1949,8 @@ function bxSyncer(K,get,put,fix,meta){let last=null,rev=null,anchor=null,lastBod
    write(get())},
   /* for the tests: stand in for the browser holding back the other tab's writes while this tab keeps writing */
   hold(on){held=!!on},
+  /* for the tests: stand in for a tab that has lost track of the state both tabs started from */
+  forget(){snaps.clear();anchor=null},
   pull(){if(held)return!1;const v=read();if(v==null||v===last)return!1;const n=P(v);if(!n)return!1;if(!n._rev){n._rev=hash(v);n._revs=[]}
    if(!rev||has(n,rev)){adopt(n,v);return!0}
    const b=baseFor(n),mine=P(last);if(!mine){adopt(n,v);return!0}if(!b)self.blind++;
@@ -1927,12 +1965,12 @@ function bxDealNow(id){const L=window.GameInLoop,d=GBX.S.deals.find(x=>x.id===id
 function bxFundNow(dealId,idxs,sel){GBX.pull&&GBX.pull();const d=bxDealNow(dealId);if(!d||!sel)return null;const want=new Set(idxs||[]),list=d.ms.filter(m=>m.st==="pending"&&want.has(m.i));if(!list.length)return null;
  const S=GBX.S,amtC=list.reduce((x,m)=>x+bxC(m.amt),0),amt=amtC/100,fee=bxFeeStep(d.tot-d.open,amt),total=(amtC+bxC(fee))/100,st=sel.kind==="card"?"in escrow":sel.kind==="bank"?"processing":"awaiting wire",method=bxPmLabel(sel),ref="GI-"+String(d.id).toUpperCase()+"-"+(list[0].i+1),pay=bxUid("py");
  let ts=Date.now();Object.keys(S.esc).forEach(k=>{const x=S.esc[k];if(k.indexOf(d.id+":")===0&&x&&x.ts>=ts)ts=x.ts+1});
- const seed0=bxC(d.tot-d.open)-S.inv.filter(r=>r&&r.dealId===d.id).reduce((x,r)=>x+bxC(r.base),0);
- list.forEach(m=>{S.esc[d.id+":"+m.i]={st,method,ref,at:bxToday(),ts,pay}});S.inv.unshift({id:bxUid("in"),date:bxToday(),deal:d.title,creator:d.cr&&d.cr.name,dealId:d.id,ts,ref,pay,ms:list.map(m=>m.i),amts:list.map(m=>bxC(m.amt)),seed0,amt:total,base:amt,fee,method,st:st==="in escrow"?"paid":st});GBX.emit();return{st,total,amt,fee,method,ref}}
+ const k=sel.kind==="card"?"card":sel.kind==="bank"?"bank":"wire",seed0=d.ms.filter(m=>!m.ren&&!S.esc[d.id+":"+m.i]&&m.st!=="pending").reduce((x,m)=>x+bxC(m.amt),0);
+ list.forEach(m=>{S.esc[d.id+":"+m.i]={st,method,ref,at:bxToday(),ts,pay,k}});S.inv.unshift({id:bxUid("in"),date:bxToday(),deal:d.title,creator:d.cr&&d.cr.name,dealId:d.id,ts,ref,pay,k,ms:list.map(m=>m.i),amts:list.map(m=>bxC(m.amt)),seed0,amt:total,base:amt,fee,method,st:st==="in escrow"?"paid":st});GBX.emit();return{st,total,amt,fee,method,ref}}
 /* a bank payment or wire clears as a whole: every milestone it paid moves to escrow together */
 function bxClearNow(dealId,i){GBX.pull&&GBX.pull();const S=GBX.S,o=S.esc[dealId+":"+i];if(!o||(o.st!=="processing"&&o.st!=="awaiting wire"))return!1;const now=Date.now();
  const same=x=>o.pay?x.pay===o.pay:(x.ts===o.ts&&x.ref===o.ref);
- Object.keys(S.esc).forEach(k=>{const x=S.esc[k];if(k.indexOf(dealId+":")===0&&same(x)&&(x.st==="processing"||x.st==="awaiting wire")){S.esc[k]={...x,st:"in escrow",cleared:bxToday(),cts:now}}});S.inv.forEach(r=>{if(r.dealId===dealId&&(o.pay?r.pay===o.pay:(r.ts===o.ts&&(r.ref==null||r.ref===o.ref)))&&r.st!=="paid")r.st="paid"});GBX.emit();return!0}
+ Object.keys(S.esc).forEach(k=>{const x=S.esc[k];if(k.indexOf(dealId+":")===0&&same(x)&&(x.st==="processing"||x.st==="awaiting wire")){S.esc[k]={...x,st:"in escrow",cleared:bxToday(),cts:now}}});S.inv.forEach(r=>{if(r.dealId===dealId&&(o.pay?r.pay===o.pay:(r.ts===o.ts&&(r.ref==null||r.ref===o.ref)))&&r.st!=="paid"){r.st="paid";r.cleared=bxToday();r.cts=now}});GBX.emit();return!0}
 /* every payout to the creator, from shared deals and the seeded deals. The 5% creator fee is taken on the running total per deal, so cents never drift */
 function bxAllRel(){const mn=bxMe().name,out=[],L=window.GameInLoop;
  GBX.S.proofs.forEach(p=>{if(p.creator===mn&&p.status==="released")out.push({id:p.id,dealId:p.dealId,value:+p.value||0,relAt:p.relAt||0,brand:bxBrandOf(p.bid).name,item:p.item})});
@@ -1993,6 +2031,8 @@ GBX.api={version:62,
  me:()=>bxMe().name,
  /* for the two-tab tests: while held, this tab doesn't see the other tab's saves (as when the browser holds them back) */
  hold:on=>{const L=window.GameInLoop;GBX.sync.hold(on);L&&L._sync&&L._sync.hold(on);return!!on},
+ /* for the two-tab tests: this tab loses track of the state both tabs started from, so its next merge has no common base */
+ forget:()=>{const L=window.GameInLoop;GBX.sync.forget();L&&L._sync&&L._sync.forget();return!0},
  /* offers */
  send:x=>bxSendOffer({creator:bxMe().name,hours:24,...x}),
  pitch:x=>bxPitch(x),
