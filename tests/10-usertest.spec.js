@@ -12,7 +12,7 @@ async function startSession(page, role) {
   await dlg.locator('[data-k="go"]').click();
   // the session resets the demo, reloads and resumes on its own
   await page.waitForFunction(() => document.querySelector('.gt-bar'), null, { timeout: 30000 });
-  await page.addStyleTag({ content: '.gamein-cookie,.w24-cookie,.gds,.gdm,.gib-tour{display:none!important}' });
+  await page.addStyleTag({ content: '.gamein-cookie,.w24-cookie,.gds,.gdm,.gib-tour,.gib-bubble{display:none!important}' });
 }
 const bar = page => page.locator('.gt-bar');
 async function done(page, ease) {

@@ -5,8 +5,9 @@ const { expect } = require('@playwright/test');
 const M = require('./money');
 
 const PAGE = process.env.GAMEIN_URL || '/index.html';
-// cookie banner, guided tour, demo menu and test bar sit on top of the app; they are not what these tests check
-const HIDE = '.gamein-cookie,.w24-cookie,.gt-bar,.gds,.gdm,.gib-tour,#gamein-root .gi-launch-demo-badge{display:none!important}';
+// cookie banner, guided tour, demo menu, test bar and the assistant's pop-up tips sit on top of the app; they are not what
+// these tests check (on a phone a tip can cover the button a test taps; the button inventory covers the tips' own buttons)
+const HIDE = '.gamein-cookie,.w24-cookie,.gt-bar,.gds,.gdm,.gib-tour,.gib-bubble,#gamein-root .gi-launch-demo-badge{display:none!important}';
 const ME = 'Instant Shock';
 
 async function startDemo(page) {

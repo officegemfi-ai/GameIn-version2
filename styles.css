@@ -4613,6 +4613,8 @@ html body #gamein-root#gamein-root .gc-offer.is-done::after,html body #gamein-ro
 /* v62 */
 /* usability test mode: the "looks done" hint stays hidden until the task really is done */
 .gt-auto[hidden]{display:none!important}
+/* v62: usability test mode, phones especially: an open dialog sits above the task bar, so its buttons are never covered; the bar is back when it closes */
+html body:has(.gt-bar) #gamein-root#gamein-root .gbx-ov{z-index:2147481550}
 
 /* ===== gamein-auth-v59-css ===== */
 /* v59: sign in + richer registration fields (shares the onboarding card look) */
