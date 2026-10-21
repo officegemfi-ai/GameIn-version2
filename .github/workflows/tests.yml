@@ -1,0 +1,44 @@
+name: GameIn rules
+
+# Every push and pull request: open the prototype in a desktop browser and a phone browser (two jobs side by side)
+# and check that the creator and brand views agree on every offer, deal, escrow payment, proof and cent.
+# Each job's summary page shows the rules table; the full report is attached to the run. See TESTING.md.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rules:
+    name: rules (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [desktop, phone]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Check the rules
+        run: npx playwright test --project=${{ matrix.project }}
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamein-test-report-${{ matrix.project }}
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 30

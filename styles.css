@@ -4610,6 +4610,10 @@ html body #gamein-root#gamein-root .gi-od-waiting .gc-link{display:block;margin-
 }
 html body #gamein-root#gamein-root .gc-offer.is-done::after,html body #gamein-root#gamein-root .gc-offer:has(.gc-offer__wait)::after{content:none!important;display:none!important}
 
+/* v62 */
+/* usability test mode: the "looks done" hint stays hidden until the task really is done */
+.gt-auto[hidden]{display:none!important}
+
 /* ===== gamein-auth-v59-css ===== */
 /* v59: sign in + richer registration fields (shares the onboarding card look) */
 .gsi .gob__card{width:min(480px,100%)}

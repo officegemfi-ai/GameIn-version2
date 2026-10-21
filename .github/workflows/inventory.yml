@@ -1,0 +1,32 @@
+name: Button inventory
+
+# On demand and every Monday: click every control in both views, from a fresh demo each time, on desktop and phone,
+# and list what each one does. Fails only if a control throws a JavaScript error. The list is in the run's artifact.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * 1'
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Click every control
+        run: npx playwright test tests/inventory.spec.js
+        env:
+          INVENTORY: '1'
+      - name: Keep the list
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamein-button-inventory
+          path: test-results/inventory/
+          retention-days: 60
