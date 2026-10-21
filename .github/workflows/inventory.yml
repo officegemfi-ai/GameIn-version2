@@ -23,6 +23,9 @@ jobs:
         run: npx playwright test tests/inventory.spec.js
         env:
           INVENTORY: '1'
+      - name: Show the result on the run page
+        if: always()
+        run: node tests/support/ci-notice.js inventory
       - name: Keep the list
         if: always()
         uses: actions/upload-artifact@v4
