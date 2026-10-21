@@ -28,6 +28,7 @@ const INVARIANTS = () => {
   });
   Object.keys(S.esc).forEach(k => { const e = S.esc[k]; if (e && e.pay && !byPay[e.pay]) bad.push('escrow ' + k + ' was funded without a receipt'); });
   // shared deals: split, funding, proofs
+  const legacy = S.inv.length > 0 && !S.inv.some(r => r.dealId);
   S.deals.forEach(d => {
     const n = d.milestones.length, tot = C(d.amount), b = Math.floor(tot / n);
     d.milestones.forEach((m, i) => { const want = i === n - 1 ? tot - b * (n - 1) : b; if (C(m.amt) !== want) bad.push('deal ' + d.id + ' milestone ' + (i + 1) + ' is ' + m.amt + ', the split says ' + want / 100); });
@@ -41,7 +42,9 @@ const INVARIANTS = () => {
       ps.forEach(p => { if (C(p.value) !== C(d.milestones[i].amt)) bad.push('proof ' + p.id + ' value ' + p.value + ' differs from its milestone'); });
       ps.forEach(p => { if (p.status === 'released' && !p.relAt) bad.push('proof ' + p.id + ' released without a date'); if (p.status === 'releasing' && !p.releaseAt) bad.push('proof ' + p.id + ' releasing without a window'); });
     });
-    // receipts: 5% of everything funded on the deal, rounded once
+    // receipts: 5% of everything funded on the deal, rounded once (builds whose receipts don't name their deal can't be
+    // checked this way: v61's carry only the deal's title)
+    if (legacy) return;
     const inv = S.inv.filter(r => r.dealId === d.id);
     const base = inv.reduce((x, r) => x + C(r.base), 0), fee = inv.reduce((x, r) => x + C(r.fee), 0), paid = inv.reduce((x, r) => x + C(r.amt), 0);
     const funded = d.milestones.reduce((x, m, i) => x + (S.esc[d.id + ':' + i] ? C(m.amt) : 0), 0);

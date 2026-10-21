@@ -163,13 +163,15 @@ async function checkMoney(page, opts = {}) {
     }
   }
   // the two seats agree on every deal: the brand's receipts charge for exactly the milestones it funded, and the creator
-  // was paid exactly what the brand's deal shows as released (less what was paid out before the demo started)
+  // was paid exactly what the brand's deal shows as released (less what was paid out before the demo started).
+  // Receipts that don't name their deal (v61's carry only its title) can't be matched to it
+  const linked = !(r.S.inv.length && !r.S.inv.some(x => x.dealId));
   for (const bid of bids) {
     for (const d of M.brandDeals(r, bid)) {
       const L = M.ledger(d, r);
       const chargedFor = r.S.inv.filter(x => x.dealId === d.id).reduce((x, i) => x + M.C(i.base), 0);
       const funded = L.ms.filter(m => m.fundedNow).reduce((x, m) => x + m.amtC, 0);
-      if (chargedFor !== funded) errs.push('deal ' + d.id + ': receipts charge for ' + M.fmt(chargedFor) + ' of milestones, but ' + M.fmt(funded) + ' was funded');
+      if (linked && chargedFor !== funded) errs.push('deal ' + d.id + ': receipts charge for ' + M.fmt(chargedFor) + ' of milestones, but ' + M.fmt(funded) + ' was funded');
       if (d.creator === r.me || r.seeded.some(x => x.id === d.id)) {
         const before = d.perItem ? 0 : L.ms.filter(m => m.st === 'released' && !m.byProof).reduce((x, m) => x + m.amtC, 0);
         if ((paidC[d.id] || 0) !== L.relC - before) errs.push('deal ' + d.id + ': the creator was paid ' + M.fmt(paidC[d.id] || 0) + ' but the brand released ' + M.fmt(L.relC - before));
