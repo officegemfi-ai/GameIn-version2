@@ -66,6 +66,12 @@ test.describe('switch', () => {
     await A.switchTo(page, 'creator');
     expect(await A.appPage(page)).toBe('sponsorships');
     await expect(page.locator('#gamein-root')).toContainText('ORBITAL AUDIO — CREATOR SERIES');
+    // going to another deal while the creator's deals page is open shows that deal, not the one already open
+    const open = page.locator('#gamein-root .gi-deal-expanded-v5').first();
+    await expect(open).toContainText('Logo overlay — campaign schedule');
+    await A.creator(page, { deal: 'sp2' });
+    await expect(open).toContainText('Unboxing short');
+    await expect(open).not.toContainText('Logo overlay — campaign schedule');
     // a brand profile -> that brand's seat
     await page.evaluate(() => GameInBrand.app.go('brandProfile', GameInBrand.app.brands.find(b => b.id === 'b4')));
     await A.settle(page, 600);
