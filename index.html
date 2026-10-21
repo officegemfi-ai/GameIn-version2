@@ -1821,7 +1821,10 @@ function bxCreatorProofs(e,h,icon){const mn=bxMe().name,L=window.GameInLoop,P=(e
  L.released=()=>bxMeNet();L.txs=()=>bxMeTx();
  /* a release is dated when its undo window ended, the same in every tab */
  const quiet=f=>{L._quiet=1;try{return f()}finally{L._quiet=0}};
- L.approve=(id,at)=>{const p=L.S.proofs.find(x=>x.id===id);if(!p||p.status!=="review")return;if(L.S.proofs.some(x=>x.id!==id&&x.dealId===p.dealId&&x.item===p.item&&(x.ci==null?p.ci==null:x.ci===p.ci)&&(x.status==="released"||x.status==="releasing")))return;quiet(()=>a0(id));const x=L.S.proofs.find(y=>y.id===id);if(x&&x.status==="released")x.relAt=at||Date.now();L.emit()};
+ /* what a seeded proof can still release: its period's money in escrow, less what other approvals are releasing */
+ const room=p=>{try{const raw=(bxRaw.P||[]).find(x=>x.id===p.dealId),v=bxDealNow(p.dealId);if(!raw||!v)return 1/0;const held=bxSeedScope(raw,v).reduce((x,m)=>x+(m.st==="in escrow"?bxC(m.amt)-bxC(m.part):0),0);
+  return held-L.S.proofs.filter(x=>x.id!==p.id&&x.dealId===p.dealId&&x.status==="releasing").reduce((x,q)=>x+bxC(q.value),0)}catch(e){return 1/0}};
+ L.approve=(id,at)=>{const p=L.S.proofs.find(x=>x.id===id);if(!p||p.status!=="review")return;if(L.S.proofs.some(x=>x.id!==id&&x.dealId===p.dealId&&x.item===p.item&&(x.ci==null?p.ci==null:x.ci===p.ci)&&(x.status==="released"||x.status==="releasing")))return;if(bxC(p.value)>room(p))return;quiet(()=>a0(id));const x=L.S.proofs.find(y=>y.id===id);if(x&&x.status==="released")x.relAt=at||Date.now();L.emit()};
  L.approveLater=(id,ms)=>{ms=ms||8000;const p=L.S.proofs.find(x=>x.id===id);if(!p||p.status!=="review")return;const ra=Date.now()+ms;p.status="releasing";p.releaseAt=ra;L.emit();
   setTimeout(()=>{L.pull&&L.pull();const x=L.S.proofs.find(y=>y.id===id);if(x&&x.status==="releasing"&&x.releaseAt===ra){x.status="review";delete x.releaseAt;x.relAt=ra;L.approve(id,ra)}},ms)};
  L.cancelRelease=id=>{const p=L.S.proofs.find(x=>x.id===id);if(!p||p.status!=="releasing")return;p.status="review";delete p.releaseAt;L.emit()};
@@ -1859,11 +1862,13 @@ function bxMerge3(b,m,t,d){d=d||0;const J=JSON.stringify,jm=J(m),jt=J(t);if(jm==
      (one in each tab): the acceptance that has gone further stands (a payout, then proof, then money paid), else the earlier one; that
      side's deal, payments and proofs are kept for it. A deal exists only for an accepted offer
    - renewals: an acceptance stands over a decline made at the same moment
-   - payments are the record of what was paid; escrow follows from them. A milestone is paid by one payment: a card payment (in escrow at
-     once) over a bank or wire payment, then the earlier one, then the lower id. That never changes later, so every tab and every later
-     merge agrees. A payment keeps the milestones it pays and its receipt charges only for those; a payment for a milestone the deal no
-     longer has (an offer version or a renewal that didn't stand) pays for nothing. A clear in either tab stands. Fees are worked out
-     again on each deal's running total, in payment order
+   - payments are the record of what was paid; escrow follows from them. A milestone is paid by one payment: one whose money has arrived
+     (a card payment, or a bank payment or wire that cleared) over one still clearing, then the earlier one, then the lower id. Money
+     that has arrived never stops having arrived, so a milestone a tab saw in escrow, and paid out or delivered against, stays in escrow
+     at every later merge. A payment keeps the milestones it pays and its receipt charges only for those (a receipt keeps everything it
+     was made for, so it can take a milestone back); a payment for a milestone the deal no longer has (an offer version or a renewal
+     that didn't stand) pays for nothing. A clear in either tab stands. Fees are worked out again on each deal's running total, in
+     payment order
    - one live proof per deliverable: the most advanced one stays (released, then releasing, then in review), else the first upload */
 function bxFixAll(M,mine,theirs){bxFixOffers(M,mine,theirs);bxFixRen(M,mine,theirs);bxFixFunds(M,mine,theirs);bxFixProofs(M)}
 function bxFixOffers(M,mine,theirs){if(!M||!Array.isArray(M.offers))return;const by=a=>new Map(((a&&a.offers)||[]).map(o=>[o.id,o])),mm=by(mine),tm=by(theirs),acc=o=>!!o&&o.status==="accepted",C=x=>Math.round((+x||0)*100);
@@ -1895,8 +1900,8 @@ function bxFixFunds(S,mine,theirs){if(!S||!S.esc||!Array.isArray(S.inv))return;c
  /* a clear in either tab stands */
  const copies=[mine,theirs].map(x=>new Map(((x&&x.inv)||[]).filter(r=>r&&r.id).map(r=>[r.id,r])));
  S.inv.forEach(r=>{if(!r||!r.pay||r.st==="paid")return;copies.forEach(m=>{const o=m.get(r.id);if(o&&o.st==="paid"&&r.st!=="paid"){r.st="paid";if(o.cts)r.cts=o.cts;if(o.cleared)r.cleared=o.cleared}})});
- /* who pays each milestone */
- const has=bxMsHave(S),card=r=>bxPayKind(r)==="card",better=(a,b)=>card(a)!==card(b)?(card(a)?a:b):(a.ts||0)!==(b.ts||0)?((a.ts||0)<(b.ts||0)?a:b):(String(a.pay)<=String(b.pay)?a:b);
+ /* who pays each milestone: money that has arrived over money still clearing, then the earlier payment, then the lower id */
+ const has=bxMsHave(S),inn=r=>r.st==="paid",better=(a,b)=>inn(a)!==inn(b)?(inn(a)?a:b):(a.ts||0)!==(b.ts||0)?((a.ts||0)<(b.ts||0)?a:b):(String(a.pay)<=String(b.pay)?a:b);
  const all=r=>r.msAll||r.ms||[],amts=r=>r.amtsAll||r.amts||null,win={};
  S.inv.forEach(r=>{if(!r||!r.pay||!r.dealId||!Array.isArray(all(r)))return;const am=amts(r);all(r).forEach((i,j)=>{if(!has(r.dealId,i,am?am[j]:null))return;const k=r.dealId+":"+i;win[k]=win[k]?better(win[k],r):r})});
  /* escrow follows the payments: each paid milestone holds the payment that pays it, as that payment stands now */

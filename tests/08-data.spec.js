@@ -40,14 +40,23 @@ const VIEW = () => ({
   loop: GameInLoop.S.proofs.map(p => [p.id, p.status, p.value, p.relAt || 0]),
   msgs: (GameInBX.S.cmsg.b3 || []).map(m => m.t),
 });
-async function inStep(tabs) {
-  const views = [];
-  for (const t of tabs) {
-    await A.api(t, 'me');
-    expect(await A.rulesHold(t), 'the rules hold in every tab').toEqual([]);
-    views.push(await t.evaluate(VIEW));
+// wait until every tab has taken in the others' saves (a storage event can land a moment later), then: the rules hold in every
+// tab and they all show the same state
+async function settled(tabs, timeout = 5000) {
+  const t0 = Date.now();
+  let views;
+  for (;;) {
+    views = [];
+    for (const t of tabs) { await A.api(t, 'me'); views.push(await t.evaluate(VIEW)); }
+    if (views.every(v => JSON.stringify(v) === JSON.stringify(views[0])) || Date.now() - t0 > timeout) break;
+    await tabs[0].waitForTimeout(200);
   }
+  for (const t of tabs) expect(await A.rulesHold(t), 'the rules hold in every tab').toEqual([]);
   views.slice(1).forEach(v => expect(v, 'both tabs show the same state').toEqual(views[0]));
+  return views[0];
+}
+async function inStep(tabs) {
+  const views = [await settled(tabs)];
   const saved = await tabs[0].evaluate(() => { const s = JSON.parse(localStorage.getItem('gib-bx')), l = JSON.parse(localStorage.getItem('gib-loop') || '{"proofs":[]}');
     return { offers: s.offers.length, deals: s.deals.length, inv: s.inv.length, esc: Object.keys(s.esc).length, proofs: s.proofs.length, loop: l.proofs.length }; });
   const v = views[0];
@@ -393,8 +402,8 @@ test.describe('saved data', () => {
     await other.close();
   });
 
-  // ---- longer collisions: one tab keeps acting while the other can't see it (found by an independent stress test)
-  test('D2 two bank payments for the same milestone, and the second clears in a tab that can\'t see the first: the first stands, the proof waits', async ({ page, context }) => {
+  // ---- longer collisions: one tab keeps acting while the other can't see it (found by independent stress tests)
+  test('D2 two bank payments for the same milestone, and the second clears in a tab that can\'t see the first: the payment that arrived stands', async ({ page, context }) => {
     const id = await A.makeDeal(page, 'b3', 'Bank twice', 300, ['Launch stream', 'Recap clip']);
     const other = await secondTab(context);
     await A.waitFor(other, i => GameInBX.S.deals.some(d => d.id === i), id);
@@ -403,13 +412,11 @@ test.describe('saved data', () => {
     const [, pid] = await sameMoment(page, other, first, secondClearsAndUploads);
     expect(pid).toBeTruthy();
     const v = await inStep([page, other]);
-    // the bank payment made first pays milestone 1 and is still clearing; the second one paid nothing, so its receipt is gone
-    expect((v.esc[id + ':0'] || {}).st).toBe('processing');
-    expect(v.inv.filter(r => r.dealId === id).map(r => [r.ms, r.amt, r.st])).toEqual([[[0], 157.5, 'processing']]);
-    // the proof waits in review until that payment clears; then the brand can approve it, and the creator is paid once
+    // the payment whose money arrived pays milestone 1; the one still clearing pays nothing, so its receipt is gone
+    expect((v.esc[id + ':0'] || {}).st).toBe('in escrow');
+    expect(v.inv.filter(r => r.dealId === id).map(r => [r.ms, r.amt, r.st])).toEqual([[[0], 157.5, 'paid']]);
+    // so the proof uploaded against it can be approved at once, and the creator is paid once
     expect(v.proofs.find(p => p[0] === pid)[1]).toBe('review');
-    expect(await A.api(page, 'approve', pid)).toBe(false);
-    expect(await A.api(page, 'clear', id, 0)).toBe(true);
     expect(await A.api(page, 'approve', pid)).toBe(true);
     await A.waitFor(page, i => GameInBX.S.proofs.find(p => p.id === i).status === 'released', pid, 12000);
     const r = await A.checkMoney(page, { bids: ['b3'], deals: [id] });
@@ -417,7 +424,31 @@ test.describe('saved data', () => {
     await other.close();
   });
 
-  test('D2 a payment trimmed by a merge clears later in the tab that made it: every milestone is charged once, by the same payment in every tab', async ({ page, context }) => {
+  test('D2 two bank payments for the same milestone; the later one clears and is paid out in its tab before the tabs catch up: the payout keeps its money', async ({ page, context }) => {
+    const id = await A.makeDeal(page, 'b3', 'Paid out first', 300, ['Launch stream', 'Recap clip']);
+    const other = await secondTab(context);
+    await A.waitFor(other, i => GameInBX.S.deals.some(d => d.id === i), id);
+    const first = t => A.api(t, 'fund', id, 'next', 'pm2');
+    const paidOut = async t => {
+      await A.api(t, 'fund', id, 'next', 'pm2');
+      expect(await A.api(t, 'clear', id, 0)).toBe(true);
+      const pid = await A.api(t, 'upload', id);
+      expect(await A.api(t, 'approve', pid)).toBe(true);
+      await t.waitForTimeout(7500);
+      expect(await t.evaluate(i => GameInBX.S.proofs.find(p => p.id === i).status, pid)).toBe('released');
+      return pid;
+    };
+    const [, pid] = await sameMoment(page, other, first, paidOut);
+    const v = await inStep([page, other]);
+    expect((v.esc[id + ':0'] || {}).st).toBe('in escrow');
+    expect(v.inv.filter(r => r.dealId === id).map(r => [r.ms, r.amt, r.st])).toEqual([[[0], 157.5, 'paid']]);
+    expect(v.proofs.find(p => p[0] === pid)[1]).toBe('released');
+    const r = await A.checkMoney(page, { bids: ['b3'], deals: [id] });
+    expect(r.net).toBe(14250);
+    await other.close();
+  });
+
+  test('D2 a payment trimmed by a merge clears later in the tab that made it: it takes its milestone back, and everything is charged once', async ({ page, context }) => {
     const id = await A.makeDeal(page, 'b3', 'Clears later', 301.01, ['Launch stream', 'Recap clip', 'Wrap-up']);
     const other = await secondTab(context);
     await A.waitFor(other, i => GameInBX.S.deals.some(d => d.id === i), id);
@@ -426,23 +457,57 @@ test.describe('saved data', () => {
     expect((await A.api(page, 'fund', id, 'next', 'pm2')).st).toBe('processing');   // bank, milestone 1
     expect((await A.api(other, 'fund', id, 'all', 'pm2')).st).toBe('processing');   // bank, everything, without seeing it
     await A.api(page, 'say', 'b3', 'brand', 'the first tab takes in the second');
+    // both still clearing: the payment made first pays milestone 1, the other is charged for milestones 2 and 3
+    expect(await page.evaluate(i => GameInBX.S.inv.filter(r => r.dealId === i).sort((x, y) => x.ts - y.ts).map(r => r.ms), id)).toEqual([[0], [1, 2]]);
     expect(await A.api(other, 'clear', id, 2)).toBe(true);                           // the second tab marks its payment received
     await A.api(other, 'say', 'b3', 'creator', 'the second tab catches up');
     await A.api(other, 'hold', false);
-    await page.waitForTimeout(400);
-    const tabs = [page, other], views = [];
-    for (const t of tabs) { await A.api(t, 'me'); expect(await A.rulesHold(t)).toEqual([]); views.push(await t.evaluate(VIEW)); }
-    expect(views[1]).toEqual(views[0]);
-    const v = views[0];
-    // milestone 1: the bank payment made first, still clearing. Milestones 2 and 3: the second payment, received
-    expect([0, 1, 2].map(k => v.esc[id + ':' + k].st)).toEqual(['processing', 'in escrow', 'in escrow']);
-    const inv = v.inv.filter(r => r.dealId === id).sort((x, y) => x.ts - y.ts).map(r => ({ ms: r.ms, base: r.base, fee: r.fee, amt: r.amt, st: r.st }));
-    expect(inv).toEqual([{ ms: [0], base: 100.33, fee: 5.02, amt: 105.35, st: 'processing' }, { ms: [1, 2], base: 200.68, fee: 10.03, amt: 210.71, st: 'paid' }]);
+    const v = await settled([page, other]);
+    // its money arrived, so it pays all three milestones again; the payment still clearing pays nothing and its receipt is gone
+    expect([0, 1, 2].map(k => v.esc[id + ':' + k].st)).toEqual(['in escrow', 'in escrow', 'in escrow']);
+    const inv = v.inv.filter(r => r.dealId === id).map(r => ({ ms: r.ms, base: r.base, fee: r.fee, amt: r.amt, st: r.st }));
+    expect(inv).toEqual([{ ms: [0, 1, 2], base: 301.01, fee: 15.05, amt: 316.06, st: 'paid' }]);
     await A.checkMoney(page, { bids: ['b3'], deals: [id] });
     await other.close();
   });
 
-  test('D2 the same offer accepted at two versions in two tabs: the acceptance that went further stands, with its deal and payment', async ({ page, context }) => {
+  test('D2 P7 a seeded deal\'s last payment made by bank in both tabs, received in one and claimed in full by the last deliverable: approvals pay exactly what is in escrow', async ({ page, context }) => {
+    // ORBITAL AUDIO: two proofs already in review, then the recap bonus is paid by bank in both tabs
+    const q1 = await A.api(page, 'seedUpload', 'sp3'), q2 = await A.api(page, 'seedUpload', 'sp3');
+    const other = await secondTab(context);
+    await A.waitFor(other, ids => ids.every(i => GameInLoop.S.proofs.some(p => p.id === i)), [q1, q2]);
+    const bank = t => A.api(t, 'fund', 'sp3', 'next', 'pm2');
+    const receivedAndClaimed = async t => { await A.api(t, 'fund', 'sp3', 'next', 'pm2'); expect(await A.api(t, 'clear', 'sp3', 2)).toBe(true); return A.api(t, 'seedUpload', 'sp3'); };
+    const [, q3] = await sameMoment(page, other, bank, receivedAndClaimed);
+    expect(q3).toBeTruthy();
+    const v = await inStep([page, other]);
+    expect((v.esc['sp3:2'] || {}).st).toBe('in escrow');
+    // the brand approves all three in the first tab: $71.78 + $71.79 + $179.47 = $323.04, everything the deal has in escrow
+    await page.evaluate(ids => ids.forEach(i => GameInLoop.approve(i)), [q1, q2, q3]);
+    await A.waitFor(page, ids => ids.every(i => GameInLoop.S.proofs.find(p => p.id === i).status === 'released'), [q1, q2, q3], 8000);
+    const paid = await page.evaluate(ids => GameInBX.api.releases().filter(r => ids.includes(r.id)).reduce((x, r) => x + Math.round(r.value * 100), 0), [q1, q2, q3]);
+    expect(paid).toBe(7178 + 7179 + 17947);
+    await A.checkMoney(page, { bids: ['b5'], deals: ['sp3'] });
+    await other.close();
+  });
+
+  test('D2 P7 a seeded proof that would release more than its period has in escrow waits', async ({ page }) => {
+    // as after a merge that left the recap bonus still clearing: three proofs claim $323.04 against $215.36 in escrow
+    const q1 = await A.api(page, 'seedUpload', 'sp3'), q2 = await A.api(page, 'seedUpload', 'sp3');
+    await A.api(page, 'fund', 'sp3', 'next', 'pm1');
+    const q3 = await A.api(page, 'seedUpload', 'sp3');
+    await page.evaluate(() => { GameInBX.S.esc['sp3:2'].st = 'processing'; const r = GameInBX.S.inv.find(x => x.dealId === 'sp3'); r.st = 'processing'; GameInBX.emit(); });
+    await page.evaluate(ids => ids.forEach(i => GameInLoop.approve(i)), [q1, q2, q3]);
+    const st = await page.evaluate(ids => ids.map(i => GameInLoop.S.proofs.find(p => p.id === i).status), [q1, q2, q3]);
+    // the first two fit in what is in escrow; the last waits in review until the bonus clears
+    expect(st).toEqual(['released', 'released', 'review']);
+    expect(await A.api(page, 'clear', 'sp3', 2)).toBe(true);
+    await page.evaluate(i => GameInLoop.approve(i), q3);
+    expect(await page.evaluate(i => GameInLoop.S.proofs.find(p => p.id === i).status, q3)).toBe('released');
+    await A.checkMoney(page, { bids: ['b5'], deals: ['sp3'] });
+  });
+
+  test('D2 an offer accepted at two versions in two tabs: the acceptance that went further stands, with its deal and payment', async ({ page, context }) => {
     const o = await A.api(page, 'send', { bid: 'b3', title: 'Two versions', amt: 240, items: [{ label: 'Stream', days: 3 }, { label: 'Clip', days: 5 }] });
     const other = await secondTab(context);
     await A.waitFor(other, i => GameInBX.S.offers.some(x => x.id === i), o.id);
@@ -479,20 +544,36 @@ test.describe('saved data', () => {
     await other.close();
   });
 
-  test('D2 one tab saves a dozen times while the other clears a payment, gets proof and pays it out: nothing is undone', async ({ page, context }) => {
-    // the second tab is open before the deal exists, so the last state both tabs saw is the one with the bank payment
+  test('D2 R3 two different renewals accepted and paid for in two tabs: the first acceptance stands, and nothing is charged for months the deal doesn\'t have', async ({ page, context }) => {
+    const other = await secondTab(context);
+    // one tab: HYPERCORE offers one more month at $1,500, the creator accepts, the brand pays for everything open. The other: the
+    // creator asks for two months at $1,600, the brand accepts and pays for everything open
+    const oneMonth = async t => { await A.api(t, 'renew', 'sp1', 'offer', { months: 1, price: 1500 }); await A.api(t, 'renew', 'sp1', 'answer', { by: 'creator', st: 'accepted' }); return (await A.api(t, 'fund', 'sp1', 'all', 'pm1')).st; };
+    const twoMonths = async t => { await A.api(t, 'renew', 'sp1', 'request', { months: 2, price: 1600, brand: 'HYPERCORE' }); await A.api(t, 'renew', 'sp1', 'answer', { by: 'brand', st: 'accepted' }); return (await A.api(t, 'fund', 'sp1', 'all', 'pm1')).st; };
+    const [a, b] = await sameMoment(page, other, oneMonth, twoMonths);
+    expect([a, b]).toEqual(['in escrow', 'in escrow']);
+    const v = await inStep([page, other]);
+    expect([v.ren.sp1.st, v.ren.sp1.months, v.ren.sp1.price]).toEqual(['accepted', 1, 1500]);
+    // August and the one renewal month are in escrow, paid once; the two-month payment pays for nothing the deal has, so it's gone
+    expect(Object.keys(v.esc).filter(k => k.startsWith('sp1:')).sort()).toEqual(['sp1:2', 'sp1:3']);
+    expect(v.inv.filter(r => r.dealId === 'sp1').map(r => [r.ms, r.amt])).toEqual([[[2, 3], 3150]]);
+    await A.checkMoney(page, { bids: ['b2'], deals: ['sp1'] });
+    await other.close();
+  });
+
+  test('D2 one tab saves a dozen times while the other pays out a proof both tabs had seen: the payout isn\'t undone', async ({ page, context }) => {
+    // the second tab is open first and only takes in the first tab's saves, so the last state both saw is the proof in review
     const other = await secondTab(context);
     await page.waitForTimeout(500);
     const id = await A.makeDeal(page, 'b3', 'Busy brand', 300, ['Launch stream', 'Recap clip']);
-    await A.api(page, 'fund', id, 'next', 'pm2');
-    await A.waitFor(other, i => (GameInBX.S.esc[i + ':0'] || {}).st === 'processing', id);
+    await A.api(page, 'fund', id, 'next', 'pm1');
+    const pid = await A.api(page, 'upload', id);
+    await A.waitFor(other, i => GameInBX.S.proofs.some(p => p.id === i), pid);
     await A.api(page, 'me');
     await A.api(other, 'me');
     await A.api(page, 'hold', true);
     await A.api(other, 'hold', true);
     for (let i = 0; i < 12; i++) await A.api(page, 'say', 'b3', 'brand', 'note ' + i);
-    expect(await A.api(other, 'clear', id, 0)).toBe(true);
-    const pid = await A.api(other, 'upload', id);
     expect(await A.api(other, 'approve', pid)).toBe(true);
     await other.waitForTimeout(7500);
     expect(await other.evaluate(i => GameInBX.S.proofs.find(p => p.id === i).status, pid)).toBe('released');
@@ -502,7 +583,6 @@ test.describe('saved data', () => {
     await A.api(other, 'hold', false);
     await page.waitForTimeout(500);
     const v = await inStep([page, other]);
-    expect((v.esc[id + ':0'] || {}).st).toBe('in escrow');
     expect(v.proofs.find(p => p[0] === pid)[1]).toBe('released');
     expect(v.msgs.filter(t => /^note \d+$/.test(t)).length).toBe(12);
     const r = await A.checkMoney(page, { bids: ['b3'], deals: [id] });
@@ -536,6 +616,39 @@ test.describe('saved data', () => {
     await other.close();
   });
 
+  test('P6 a second proof for a deliverable that is already paid is never paid, by any route', async ({ page }) => {
+    // as after a merge that brought in another copy: shared deal, the demo's extra deal and a seeded deal
+    const id = await A.makeDeal(page, 'b3', 'Already paid', 300, ['Launch stream', 'Recap clip']);
+    await A.api(page, 'fund', id, 'next', 'pm1');
+    const p1 = await A.api(page, 'upload', id);
+    expect(await A.api(page, 'approve', p1)).toBe(true);
+    await A.waitFor(page, i => GameInBX.S.proofs.find(p => p.id === i).status === 'released', p1, 12000);
+    const copy = (st, extra) => page.evaluate(([i, st, ex]) => { const p = GameInBX.S.proofs.find(x => x.id === i); const c = { ...p, id: p.id + st, status: st, at: p.at + 1, ...ex }; delete c.relAt; GameInBX.S.proofs.unshift(c); GameInBX.emit(); return c.id; }, [p1, st, extra || {}]);
+    const p2 = await copy('review');
+    expect(await A.api(page, 'approve', p2)).toBe(false);
+    const p3 = await copy('releasing', { releaseAt: Date.now() - 4000 });   // a release whose window ran out: the sweeper puts it back
+    await A.waitFor(page, i => GameInBX.S.proofs.find(p => p.id === i).status === 'review', p3, 6000);
+    expect(await page.evaluate(i => GameInBX.api.releases().filter(r => r.dealId === i).length, id)).toBe(1);
+    // seeded deal: a second copy of an approved deliverable's proof stays in review
+    const s1 = await A.api(page, 'seedUpload', 'sp1');
+    await page.evaluate(i => GameInLoop.approve(i), s1);
+    const s2 = await page.evaluate(i => { const L = GameInLoop, p = L.S.proofs.find(x => x.id === i), c = { ...p, id: p.id + 'b', status: 'review' }; delete c.relAt; L.S.proofs.unshift(c); L.emit(); L.approve(c.id); return L.S.proofs.find(x => x.id === c.id).status; }, s1);
+    expect(s2).toBe('review');
+    expect(await page.evaluate(() => GameInBX.api.releases().filter(r => r.dealId === 'sp1').length)).toBe(1);
+  });
+
+  test('M4 the demo\'s extra deal pays out only from escrow', async ({ page }) => {
+    // ROCKET LEAGUE CUP WEEK (Qwerty2000, for HYPERCORE): funded by bank, the delivered stream can't be paid until the money clears
+    expect((await A.api(page, 'fund', 'bx1', 'next', 'pm2')).st).toBe('processing');
+    await page.evaluate(() => { const S = GameInBX.S; S.proofs.unshift({ id: 'bpx1', dealId: 'bx1', bid: 'b2', creator: 'Qwerty2000', deal: 'ROCKET LEAGUE CUP WEEK', item: 'Cup stream with logo overlay', idx: 0, n: 3, value: 300, status: 'review', at: Date.now() }); GameInBX.emit(); });
+    expect(await A.api(page, 'approve', 'bpx1')).toBe(false);
+    expect(await A.api(page, 'clear', 'bx1', 0)).toBe(true);
+    expect(await A.api(page, 'approve', 'bpx1')).toBe(true);
+    await A.waitFor(page, () => GameInBX.S.proofs.find(p => p.id === 'bpx1').status === 'released', null, 12000);
+    expect(await A.rulesHold(page)).toEqual([]);
+    await A.checkMoney(page, { bids: ['b2'], deals: ['bx1'] });
+  });
+
   test('D2 M2 two payments on a seeded deal at the same moment, for different milestones: fees on the running total, to the cent', async ({ page, context }) => {
     // ORBITAL AUDIO renews for $100.12; the recap bonus and the renewal are then paid for in two tabs at the same moment
     expect(await A.api(page, 'renew', 'sp3', 'request', { months: 1, price: 100.12, brand: 'ORBITAL AUDIO' })).toBe('');
@@ -561,12 +674,10 @@ test.describe('saved data', () => {
     const pay = t => A.api(t, 'fund', id, 'next', 'pm1'), offer = t => A.api(t, 'send', { bid: 'b4', title: 'Kept too', amt: 90, items: [{ label: 'Post', days: 4 }] });
     const [paid, sent] = await sameMoment(page, other, pay, offer);
     expect(paid.st).toBe('in escrow');
-    const views = [];
-    for (const t of [page, other]) { await A.api(t, 'me'); expect(await A.rulesHold(t)).toEqual([]); views.push(await t.evaluate(VIEW)); }
-    expect(views[1]).toEqual(views[0]);
-    expect(views[0].esc[id + ':0'].st).toBe('in escrow');
-    expect(views[0].offers.some(x => x[0] === sent.id)).toBe(true);
-    expect(views[0].msgs).toEqual(expect.arrayContaining(['sent from the first tab', 'sent from the second tab']));
+    const v = await settled([page, other]);
+    expect(v.esc[id + ':0'].st).toBe('in escrow');
+    expect(v.offers.some(x => x[0] === sent.id)).toBe(true);
+    expect(v.msgs).toEqual(expect.arrayContaining(['sent from the first tab', 'sent from the second tab']));
     expect((await A.api(page, 'merges')).storeBlind).toBeGreaterThan(0);
     await A.checkMoney(page, { bids: ['b3'], deals: [id] });
     await other.close();

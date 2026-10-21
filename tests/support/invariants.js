@@ -45,11 +45,9 @@ const INVARIANTS = () => {
     Object.keys(byIdx).forEach(i => {
       const ps = byIdx[i], live = ps.filter(p => p.status === 'review' || p.status === 'releasing' || p.status === 'released');
       if (live.length > 1) bad.push('deal ' + d.id + ' deliverable ' + i + ' has ' + live.length + ' live proofs');
-      // money moves only from escrow: a proof being paid or paid sits on money in escrow. A proof in review sits on money that is
-      // funded (when two payments for it met, the one that stands may still be clearing; the proof then waits)
-      const e = S.esc[d.id + ':' + i], paying = live.filter(p => p.status !== 'review');
-      if (paying.length && (!e || e.st !== 'in escrow')) bad.push('deal ' + d.id + ' deliverable ' + i + ' has a proof ' + paying[0].status + ' but its money is ' + (e ? e.st : 'not funded'));
-      if (live.length && !e) bad.push('deal ' + d.id + ' deliverable ' + i + ' has proof but its money is not funded');
+      // proof only on money in escrow (when two payments for a milestone meet, money that has arrived stands)
+      const e = S.esc[d.id + ':' + i];
+      if (live.length && (!e || e.st !== 'in escrow')) bad.push('deal ' + d.id + ' deliverable ' + i + ' has a proof ' + live[0].status + ' but its money is ' + (e ? e.st : 'not funded'));
       ps.forEach(p => { if (C(p.value) !== C(d.milestones[i].amt)) bad.push('proof ' + p.id + ' value ' + p.value + ' differs from its milestone'); });
       ps.forEach(p => { if (p.status === 'released' && !p.relAt) bad.push('proof ' + p.id + ' released without a date'); if (p.status === 'releasing' && !p.releaseAt) bad.push('proof ' + p.id + ' releasing without a window'); });
     });
@@ -62,6 +60,16 @@ const INVARIANTS = () => {
     if (base !== funded) bad.push('deal ' + d.id + ' receipts cover ' + base + ' but ' + funded + ' is funded');
     if (fee !== feeC(funded)) bad.push('deal ' + d.id + ' fees ' + fee + ' but 5% of ' + funded + ' is ' + feeC(funded));
     if (paid !== base + fee) bad.push('deal ' + d.id + ' charged ' + paid + ' not ' + (base + fee));
+  });
+  // the demo's extra deals paid per deliverable (bx1 on brand b2): one live proof per deliverable, only on money in escrow
+  GameInBX.api.raw().extra.filter(d => d.perItem).forEach(d => {
+    const per = {};
+    S.proofs.filter(p => p.dealId === d.id).forEach(p => { if (p.status === 'review' || p.status === 'releasing' || p.status === 'released') (per[p.idx] = per[p.idx] || []).push(p); });
+    Object.keys(per).forEach(i => {
+      const e = S.esc[d.id + ':' + i], st = e ? e.st : ((d.milestones || [])[i] || {}).st;
+      if (per[i].length > 1) bad.push('deal ' + d.id + ' deliverable ' + i + ' has ' + per[i].length + ' live proofs');
+      if (st !== 'in escrow') bad.push('deal ' + d.id + ' deliverable ' + i + ' has a proof ' + per[i][0].status + ' but its money is ' + (st || 'not funded'));
+    });
   });
   // seeded deals: proofs never claim more than their period has in escrow (a monthly deal's current month; otherwise the
   // deal's own milestones, never a renewal's), and one live proof per deliverable
