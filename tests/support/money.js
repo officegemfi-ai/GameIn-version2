@@ -4,7 +4,8 @@
 //   fees are 5% of the running total per deal, rounded to the cent once (half up), so splits never drift
 //   money is released only for approved proof, and never more than is in escrow
 //   the creator's existing (seeded) deals: each approved deliverable releases an even share of what is in escrow for its
-//   period (a monthly deal's current month; otherwise the deal itself, never a renewal), the last one what is left
+//   period (a monthly deal's current month; otherwise the deal itself, never a renewal), rounded down to the cent like
+//   every split, and the last one releases what is left
 
 const C = x => Math.round(Number(x || 0) * 100);           // dollars -> integer cents
 const feeC = c => Math.round(c / 20);                       // 5% of a cent amount, half up
@@ -137,7 +138,7 @@ function seedShare(raw, dealId) {
     if (scope.some(m => m.st !== 'in escrow' && m.st !== 'released')) return { ok: false, why: 'the rest is not funded yet' };
     return { ok: true, valueC: availC, last: true, item: open[0].label };
   }
-  return { ok: true, valueC: Math.round(availC / open.length), last: false, item: open[0].label };
+  return { ok: true, valueC: Math.floor(availC / open.length), last: false, item: open[0].label };
 }
 // what a seeded deal's proofs claim against what its period has in escrow: claims may never exceed it
 function seedClaims(raw, dealId) {

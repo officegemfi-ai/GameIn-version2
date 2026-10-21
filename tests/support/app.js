@@ -3,6 +3,7 @@
 // so tests spend their time on the actions, not on menus. Reading money always comes from what is on screen.
 const { expect } = require('@playwright/test');
 const M = require('./money');
+const { rulesHold } = require('./invariants');
 
 const PAGE = process.env.GAMEIN_URL || '/index.html';
 // cookie banner, guided tour, demo menu, test bar and the assistant's pop-up tips sit on top of the app; they are not what
@@ -139,8 +140,11 @@ async function creatorUpload(page) {
 // ---- money: check every screen against the rules, to the cent
 async function checkMoney(page, opts = {}) {
   const r = await raw(page);
-  const errs = [];
+  // every rule on the raw data first (tests/support/invariants.js), then the numbers on every screen
+  const errs = (await rulesHold(page)).map(x => 'rule broken: ' + x);
   const bids = opts.bids || [...new Set(r.S.deals.map(d => d.brandId))];
+  const pays = M.releasesOf(r), paidC = {};
+  pays.forEach(p => { paidC[p.dealId] = (paidC[p.dealId] || 0) + p.valueC; });
   // engine projection vs the rules
   for (const bid of bids) {
     for (const d of M.brandDeals(r, bid)) {
@@ -155,6 +159,20 @@ async function checkMoney(page, opts = {}) {
         const already = M.milestonesOf(d, r).filter(m => m.st && m.st !== 'pending' && !m.ren).reduce((x, m) => x + m.amtC, 0) * (d.perItem ? 0 : 1);
         const fees = M.brandFees(already, inv.map(x => M.C(x.base)));
         inv.forEach((x, k) => { if (M.C(x.amt) !== M.C(x.base) + fees[k]) errs.push('receipt ' + d.id + ' #' + k + ' charged ' + x.amt + ' expected ' + M.fmt(M.C(x.base) + fees[k])); });
+      }
+    }
+  }
+  // the two seats agree on every deal: the brand's receipts charge for exactly the milestones it funded, and the creator
+  // was paid exactly what the brand's deal shows as released (less what was paid out before the demo started)
+  for (const bid of bids) {
+    for (const d of M.brandDeals(r, bid)) {
+      const L = M.ledger(d, r);
+      const chargedFor = r.S.inv.filter(x => x.dealId === d.id).reduce((x, i) => x + M.C(i.base), 0);
+      const funded = L.ms.filter(m => m.fundedNow).reduce((x, m) => x + m.amtC, 0);
+      if (chargedFor !== funded) errs.push('deal ' + d.id + ': receipts charge for ' + M.fmt(chargedFor) + ' of milestones, but ' + M.fmt(funded) + ' was funded');
+      if (d.creator === r.me || r.seeded.some(x => x.id === d.id)) {
+        const before = d.perItem ? 0 : L.ms.filter(m => m.st === 'released' && !m.byProof).reduce((x, m) => x + m.amtC, 0);
+        if ((paidC[d.id] || 0) !== L.relC - before) errs.push('deal ' + d.id + ': the creator was paid ' + M.fmt(paidC[d.id] || 0) + ' but the brand released ' + M.fmt(L.relC - before));
       }
     }
   }
@@ -192,7 +210,7 @@ async function checkMoney(page, opts = {}) {
     }
   }
   // creator screens
-  const pays = M.releasesOf(r), net = pays.reduce((x, p) => x + p.netC, 0);
+  const net = pays.reduce((x, p) => x + p.netC, 0);
   const myHeld = M.creatorDeals(r).map(d => M.ledger(d, r)).reduce((x, L) => x + L.heldC, 0);
   const w = await creatorWallet(page);
   if (M.cents(w.available) !== M.C(1586) + net) errs.push('wallet available ' + w.available + ', expected ' + M.fmt(M.C(1586) + net));
@@ -230,4 +248,4 @@ async function makeDeal(page, bid, title, amt, labels) {
 const offerOf = (page, id) => page.evaluate(i => JSON.parse(JSON.stringify(GameInBX.S.offers.find(o => o.id === i) || null)), id);
 const waitFor = (page, fn, arg, timeout = 15000) => page.waitForFunction(fn, arg, { timeout });
 
-module.exports = { makeDeal, offerOf, waitFor, dismiss,  PAGE, ME, M, startDemo, enterDemo, reload, isPhone, api, raw, appPage, settle, noErrors, seatButton, switchTo, seat, brand, creator, creatorDealTab, offerCard, resolvedCard, creatorWallet, brandDealMoney, brandTiles, card, offerRow, proofSheet, tap, creatorUpload, checkMoney };
+module.exports = { rulesHold, makeDeal, offerOf, waitFor, dismiss,  PAGE, ME, M, startDemo, enterDemo, reload, isPhone, api, raw, appPage, settle, noErrors, seatButton, switchTo, seat, brand, creator, creatorDealTab, offerCard, resolvedCard, creatorWallet, brandDealMoney, brandTiles, card, offerRow, proofSheet, tap, creatorUpload, checkMoney };

@@ -12,7 +12,7 @@ module.exports = defineConfig({
   expect: { timeout: 10000 },
   fullyParallel: true,
   workers: process.env.CI ? 4 : 3,
-  retries: process.env.CI ? 1 : 0,
+  retries: 0, // a test that only passes on a second try is a failure, not a pass
   reporter: [
     ['list'],
     ['json', { outputFile: 'test-results/results.json' }],

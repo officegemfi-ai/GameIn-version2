@@ -2,7 +2,7 @@
 
 The prototype is one page with two seats: **Instant Shock** (the creator) and any **brand**. Both seats share every offer, deal, escrow payment, proof, payout, renewal, rating and message. These tests prove the two seats agree, on a desktop browser and a phone browser, down to the cent.
 
-They run on GitHub on every push and pull request (`.github/workflows/tests.yml`): a desktop job and a phone job side by side. Each job's summary page shows the rules table, and the full report is attached to the run as `gamein-test-report-desktop` and `gamein-test-report-phone`.
+They run on GitHub on every push and pull request (`.github/workflows/tests.yml`): a desktop job and a phone job side by side. Each job's summary page shows the rules table, and the full report is attached to the run as `gamein-test-report-desktop` and `gamein-test-report-phone`. There are no retries: a test that only passes on a second try counts as failed.
 
 ## The rules
 
@@ -13,8 +13,11 @@ The money rules, which the tests implement a second time on their own in `tests/
 - The brand pays each milestone plus a **5% brand fee**. The creator receives **95%** of each release (a 5% creator fee).
 - Fees are 5% of the **running total per deal**, rounded to the cent once (half up). Funding or releasing in parts costs exactly the same as all at once.
 - A deal's price is split over its deliverables in whole cents: every share is rounded down, the last one takes the rest. A property test checks 3,000 random prices.
-- Money is released only for approved proof, and never more than is in escrow. On the creator's existing (seeded) deals, each approved deliverable releases an even share of what its own period has in escrow (a monthly deal's current month, never next month's or a renewal's money), and the last one releases what's left once that period is fully funded.
+- Money is released only for approved proof, and never more than is in escrow. On the creator's existing (seeded) deals, each approved deliverable releases an even share of what its own period has in escrow, rounded down to the cent (a monthly deal's current month, never next month's or a renewal's money), and the last one releases what's left once that period is fully funded.
 - Money is conserved: funded = in escrow + released, on every screen of both seats. Nothing released beyond what was in escrow may disappear into a capped total: the check fails on it.
+- Both seats agree on every deal: the brand's receipts charge for exactly the milestones it funded (one receipt per payment), and the creator was paid exactly what the brand's deal shows as released.
+
+After every scenario, `checkMoney` (`tests/support/app.js`) first checks every rule in `tests/support/invariants.js` against the saved data (offers, deals, payments, proofs, seeded deals, payouts), then reads every money figure on the brand's and the creator's screens and compares it to the cent.
 
 ## Running them
 
@@ -43,7 +46,16 @@ GAMEIN_URL=http://127.0.0.1:8820/v62.html npx playwright test
 
 ## Two tabs
 
-Both seats can be open in two tabs of one browser. Every save carries a revision and the revisions it was built on. Before every tap, key press, timer and engine call a tab takes in any save it hasn't seen; if two tabs saved at the same moment, the tab whose save was overwritten merges both (by offer, deal, proof and receipt id, message by message) and saves again. `tests/08-data.spec.js` has both tabs write as fast as they can at the same time and checks that nothing is lost.
+Both seats can be open in two tabs of one browser. Every save carries a revision and the revisions it was built on. Before every tap, key press, timer and engine call a tab takes in any save it hasn't seen; if two tabs saved at the same moment, the tab whose save was overwritten merges both (by offer, deal, proof and receipt id, message by message) and saves again.
+
+When both tabs change the same thing at once, the merge settles it the same way every time, before anything is saved:
+
+- An acceptance stands over a counter, a decline or a withdrawal made at the same moment, and a deal exists only for an accepted offer.
+- Two payments for the same milestone: the one saved first stands; the other is dropped whole, receipt included, and fees are worked out again on the deal's running total. Nothing is charged twice.
+- One live proof per deliverable: the most advanced one stays (released, then releasing, then in review), otherwise the first upload. Nothing is paid twice.
+- Otherwise the move saved first stands (approve against request changes, for example).
+
+`tests/08-data.spec.js` has both tabs write as fast as they can at the same time and checks that nothing is lost. It then plays each of those collisions in both orders: each tab is held back from the other's saves (`GameInBX.api.hold`, standing in for the browser holding them back while a tab is writing), both act, both catch up, and the test checks that the two tabs and what's saved agree, every rule holds, and the money is right to the cent.
 
 ## Every button
 

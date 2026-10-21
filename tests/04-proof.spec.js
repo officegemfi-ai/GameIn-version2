@@ -158,14 +158,56 @@ test.describe('proof', () => {
     await A.waitFor(p2, i => GameInBX.S.proofs.some(p => p.id === i), pid);
     const both = await Promise.all([A.api(page, 'approve', pid), A.api(p2, 'approve', pid)]);
     expect(both).toContain(true);
+    const windows = await Promise.all([page, p2].map(t => t.evaluate(i => GameInBX.S.proofs.find(p => p.id === i).releaseAt, pid)));
     await A.waitFor(page, i => GameInBX.S.proofs.find(p => p.id === i).status === 'released', pid, 15000);
     await page.waitForTimeout(3000);
+    const seen = [];
     for (const t of [page, p2]) {
       expect(await t.evaluate(i => GameInBX.S.proofs.filter(p => p.id === i).map(p => p.status), pid)).toEqual(['released']);
       expect(await t.evaluate(i => GameInBX.api.releases().filter(r => r.id === i).length, pid)).toBe(1);
+      seen.push(await t.evaluate(i => GameInBX.S.proofs.find(p => p.id === i).relAt, pid));
     }
+    // dated once, the same in both tabs: when the undo window that won ended
+    expect(seen[0]).toBe(seen[1]);
+    expect(windows).toContain(seen[0]);
     const r = await A.checkMoney(page, { bids: ['b3'], deals: [id] });
     expect(r.net).toBe(14250);
+    await p2.close();
+  });
+
+  test('P6 D2 two tabs that can\'t see each other\'s save both approve the same proof: released once, dated once', async ({ page, context }) => {
+    const id = await fundedDeal(page, 'Blind race', 300, ['Launch stream', 'Recap clip']);
+    const pid = await A.api(page, 'upload', id);
+    const p2 = await context.newPage();
+    p2.__errors = [];
+    p2.on('pageerror', e => p2.__errors.push(String((e && e.message) || e)));
+    await p2.goto(A.PAGE);
+    await A.enterDemo(p2);
+    await A.waitFor(p2, i => GameInBX.S.proofs.some(p => p.id === i), pid);
+    // each tab is held back from the other's saves (as the browser does while a tab is writing): both approvals go through
+    await A.api(page, 'hold', true);
+    await A.api(p2, 'hold', true);
+    expect(await A.api(page, 'approve', pid)).toBe(true);
+    expect(await A.api(p2, 'approve', pid)).toBe(true);
+    const windows = await Promise.all([page, p2].map(t => t.evaluate(i => GameInBX.S.proofs.find(p => p.id === i).releaseAt, pid)));
+    await A.api(page, 'hold', false);
+    await A.api(p2, 'hold', false);
+    for (const t of [page, p2]) await A.waitFor(t, i => GameInBX.S.proofs.find(p => p.id === i).status === 'released', pid, 15000);
+    await page.waitForTimeout(Math.max(0, Math.max(...windows) - Date.now()) + 2000);
+    const seen = [];
+    for (const t of [page, p2]) {
+      seen.push(await t.evaluate(i => { const p = GameInBX.S.proofs.find(x => x.id === i); return { status: p.status, relAt: p.relAt, open: 'releaseAt' in p, paid: GameInBX.api.releases().filter(r => r.id === i).length }; }, pid));
+      expect(await A.rulesHold(t)).toEqual([]);
+    }
+    expect(seen[0]).toEqual(seen[1]);
+    expect(seen[0]).toMatchObject({ status: 'released', open: false, paid: 1 });
+    expect(windows).toContain(seen[0].relAt);
+    // the two approvals really collided: one tab merged them
+    const merged = (await A.api(page, 'merges')).store + (await A.api(p2, 'merges')).store;
+    expect(merged).toBeGreaterThan(0);
+    const r = await A.checkMoney(page, { bids: ['b3'], deals: [id] });
+    expect(r.net).toBe(14250);
+    expect(p2.__errors).toEqual([]);
     await p2.close();
   });
 
@@ -174,6 +216,9 @@ test.describe('proof', () => {
     const share = A.M.seedShare(await A.raw(page), 'sp1');
     const seeded = await page.evaluate(() => JSON.parse(JSON.stringify(GameInLoop.S.proofs.find(p => p.dealId === 'sp1' && p.status === 'review'))));
     expect(seeded.item).toBe('Mid-roll segment #2');
+    // written out by hand: $1,500.00 for July in escrow, four July deliverables still open (one in review): $375.00 each
+    expect(share).toMatchObject({ ok: true, valueC: 37500, last: false });
+    expect(A.M.C(seeded.value)).toBe(37500);
     await A.brand(page, 'b2', 'approvals');
     const pc = proofCard(page, 'Mid-roll segment #2');
     await expect(pc).toContainText(A.M.fmt(A.M.C(seeded.value)));
@@ -202,6 +247,8 @@ test.describe('proof', () => {
     const r0 = await A.raw(page);
     const sp1 = A.M.seedShare(r0, 'sp1'), sp2 = A.M.seedShare(r0, 'sp2');
     expect(sp1.ok && sp2.ok).toBe(true);
+    // by hand: July's $1,500.00 over four open deliverables; XMAS TEASER DROP's $274.50 over its two deliverables
+    expect([sp1.valueC, sp2.valueC]).toEqual([37500, 13725]);
     // HYPERCORE prepays August; NEXAWEAR renews XMAS TEASER DROP and funds the renewal
     expect((await A.api(page, 'fund', 'sp1', 'next', 'pm1')).st).toBe('in escrow');
     expect(await A.api(page, 'renew', 'sp2', 'request', { brand: 'NEXAWEAR', months: 1, price: 274.5 })).toBe('');

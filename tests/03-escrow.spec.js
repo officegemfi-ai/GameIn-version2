@@ -141,17 +141,19 @@ test.describe('escrow', () => {
   });
 
   test('E6 seeded deals: the creator can\'t claim more than is in escrow; the last deliverable waits for full funding', async ({ page }) => {
-    // ORBITAL AUDIO has $215.36 in escrow and a $107.68 bonus not funded yet; three deliverables are open, so each of the
-    // first two claims a third of what's in escrow ($71.79), worked out here from the saved data
+    // ORBITAL AUDIO has $215.36 in escrow and a $107.68 bonus not funded yet; three deliverables are open. Shares are
+    // rounded down to the cent like every split: the first claims a third of what's in escrow ($71.78), the second half of
+    // what's left ($71.79). Worked out here from the saved data, and written out by hand
     const share = async () => A.M.seedShare(await A.raw(page), 'sp3');
     const s1 = await share();
-    expect(s1).toMatchObject({ ok: true, valueC: 7179, last: false });
+    expect(s1).toMatchObject({ ok: true, valueC: 7178, last: false });
     const g1 = await A.api(page, 'seedGate', 'sp3');
     expect(g1.ok).toBe(true);
     expect(A.M.C(g1.value)).toBe(s1.valueC);
     const p1 = await A.api(page, 'seedUpload', 'sp3');
     await page.evaluate(id => GameInLoop.approve(id), p1);
     const s2 = await share();
+    expect(s2).toMatchObject({ ok: true, valueC: 7179, last: false });
     expect(A.M.C((await A.api(page, 'seedGate', 'sp3')).value)).toBe(s2.valueC);
     const p2 = await A.api(page, 'seedUpload', 'sp3');
     await page.evaluate(id => GameInLoop.approve(id), p2);
@@ -175,8 +177,8 @@ test.describe('escrow', () => {
     expect(g4.ok).toBe(true);
     expect(g4.last).toBe(true);
     expect(A.M.C(g4.value)).toBe(s4.valueC);
-    // $215.36 + $107.68 funded, $143.58 already paid out: $179.46 is left for the last deliverable
-    expect(s4.valueC).toBe(21536 + 10768 - 2 * 7179);
+    // $215.36 + $107.68 funded, $143.57 already paid out: $179.47 is left for the last deliverable
+    expect(s4.valueC).toBe(21536 + 10768 - 7178 - 7179);
     await A.checkMoney(page, { bids: ['b5'], deals: ['sp3'] });
   });
 });
