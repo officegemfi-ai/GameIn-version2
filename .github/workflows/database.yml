@@ -1,0 +1,74 @@
+name: GameIn database
+
+# Every push and pull request: build the Supabase database from supabase/migrations on Postgres 15 and 17 and run the
+# database tests (every action from both seats, every blocked move, two connections at the same instant, random walks,
+# the money audit after each test). Then load the migrations and the demo seed into Supabase's own Postgres with the
+# Supabase CLI, check them there, and run the tests on that server too. See supabase/README.md.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: database-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres:
+    name: tests on Postgres ${{ matrix.postgres }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: [15, 17]
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Database tests
+        run: npm run test:db
+
+  supabase:
+    name: on Supabase's own Postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.122.0
+      - name: Start Supabase's database
+        run: supabase db start
+      - name: Load the migrations and the demo seed
+        run: supabase db reset
+      - name: Check them there
+        run: psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -X -q -f db/tests/supabase-checks.sql
+      - name: Database tests on Supabase's Postgres
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: npm run test:db

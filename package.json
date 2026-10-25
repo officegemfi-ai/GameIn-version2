@@ -1,14 +1,16 @@
 {
   "name": "gamein-prototype-tests",
   "private": true,
-  "description": "End-to-end checks that the GameIn creator and brand views stay in step",
+  "description": "GameIn: the Supabase database and its tests, and end-to-end checks that the creator and brand views stay in step",
   "scripts": {
     "test": "playwright test",
     "test:desktop": "playwright test --project=desktop",
     "test:phone": "playwright test --project=phone",
-    "inventory": "INVENTORY=1 playwright test tests/inventory.spec.js"
+    "inventory": "INVENTORY=1 playwright test tests/inventory.spec.js",
+    "test:db": "node --test --test-concurrency=1 --test-reporter=spec db/tests/*.test.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "1.56.0"
+    "@playwright/test": "1.56.0",
+    "pg": "8.16.3"
   }
 }
