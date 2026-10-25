@@ -201,12 +201,16 @@ dbTest('payouts through a provider wait for the transfer; a failed one puts the 
   assert.equal(await w.db.service().rpc('complete_payout', { p_payout: first, p_paid: false }), true);
   assert.equal((await wallet(w)).available_cents, net, 'a failed payout returns the money and the fee');
   const second = await w.C.rpc('request_payout', { p_creator: w.creator });
+  // a webhook that says neither paid nor failed changes nothing (it must not hand the money back)
+  assert.equal((await refusal(w.db.service().rpc('complete_payout', { p_payout: second, p_paid: null }))).rule, 'M5');
+  assert.equal((await w.db.one('select status from public.payouts where id = $1', [second])).status, 'pending');
   assert.equal(await w.db.service().rpc('complete_payout', { p_payout: second, p_paid: true, p_provider_ref: 'tr_1' }), true);
   assert.equal(await w.db.service().rpc('complete_payout', { p_payout: second, p_paid: false }), false, 'a paid payout stays paid');
   const wl = await wallet(w);
   assert.equal(wl.available_cents, 0);
   assert.equal(wl.paid_out_cents, net);
   assert.equal((await refusal(w.C.rpc('complete_payout', { p_payout: second, p_paid: true }))).code, '42501');
+
 });
 
 dbTest('proof a brand leaves unanswered for 5 days approves itself and releases', async (w) => {
@@ -214,9 +218,15 @@ dbTest('proof a brand leaves unanswered for 5 days approves itself and releases'
   await w.fund(deal);
   const old = await w.deliver(deal, 1);
   const fresh = await w.deliver(deal, 2);
-  await w.db.q("update public.proofs set submitted_at = now() - interval '5 days 1 minute' where id = $1", [old]);
+  await w.db.q("update public.proofs set submitted_at = now() - interval '6 days', review_started_at = now() - interval '5 days 1 minute' where id = $1", [old]);
   assert.equal(await w.db.service().rpc('release_due'), 1);
   assert.equal((await proofRow(w, old)).status, 'released');
   assert.equal((await proofRow(w, fresh)).status, 'in_review');
   assert.equal((await w.events('proof_auto_approved')).length, 1);
+  // an undo restarts the 5 days: proof approved and undone on day 5 isn't released by the next scheduler run
+  await w.db.q("update public.proofs set submitted_at = now() - interval '5 days', review_started_at = now() - interval '5 days' where id = $1", [fresh]);
+  await w.B.rpc('approve_proof', { p_proof: fresh });
+  await w.B.rpc('undo_approval', { p_proof: fresh });
+  assert.equal(await w.db.service().rpc('release_due'), 0);
+  assert.equal((await proofRow(w, fresh)).status, 'in_review');
 });

@@ -12,19 +12,22 @@
 -- ---------------------------------------------------------------------------------------------------------------------
 create function private.waiting_on(p_status public.offer_status) returns public.side
 language sql immutable
+set search_path = ''
 as $$ select case p_status when 'sent' then 'creator'::public.side when 'countered' then 'brand'::public.side end $$;
 
 create function private.other_side(p_side public.side) returns public.side
 language sql immutable
+set search_path = ''
 as $$ select case p_side when 'brand' then 'creator'::public.side else 'brand'::public.side end $$;
 
 create function private.lock_offer(p_offer uuid) returns public.offers
 language plpgsql
+set search_path = ''
 as $$
 declare
   o public.offers;
 begin
-  select * into o from public.offers where id = p_offer for update;
+  select * into o from public.offers where id = p_offer for no key update;
   if not found then
     perform private.not_found('Offer');
   end if;
@@ -34,11 +37,12 @@ $$;
 
 create function private.lock_deal(p_deal uuid) returns public.deals
 language plpgsql
+set search_path = ''
 as $$
 declare
   d public.deals;
 begin
-  select * into d from public.deals where id = p_deal for update;
+  select * into d from public.deals where id = p_deal for no key update;
   if not found then
     perform private.not_found('Deal');
   end if;
@@ -46,9 +50,45 @@ begin
 end
 $$;
 
+-- the same, after checking the person sits on that side, so someone who isn't a party never takes a lock
+create function private.lock_offer_as(p_offer uuid, p_as public.side) returns public.offers
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_brand uuid;
+  v_creator uuid;
+begin
+  select o.brand_id, o.creator_id into v_brand, v_creator from public.offers o where o.id = p_offer;
+  if not found then
+    perform private.not_found('Offer');
+  end if;
+  perform private.assert_acting(p_as, v_brand, v_creator);
+  return private.lock_offer(p_offer);
+end
+$$;
+
+create function private.lock_deal_as(p_deal uuid, p_as public.side) returns public.deals
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_brand uuid;
+  v_creator uuid;
+begin
+  select d.brand_id, d.creator_id into v_brand, v_creator from public.deals d where d.id = p_deal;
+  if not found then
+    perform private.not_found('Deal');
+  end if;
+  perform private.assert_acting(p_as, v_brand, v_creator);
+  return private.lock_deal(p_deal);
+end
+$$;
+
 -- O8, O9, O11: you can answer an offer that is open, inside its reply window and waiting on you
 create function private.check_your_turn(o public.offers, p_as public.side) returns void
 language plpgsql
+set search_path = ''
 as $$
 begin
   if o.status not in ('sent', 'countered') then
@@ -66,6 +106,7 @@ $$;
 
 create function private.check_terms(p_amount bigint, p_items jsonb) returns void
 language plpgsql
+set search_path = ''
 as $$
 begin
   if p_amount is null or p_amount <= 0 then
@@ -77,11 +118,15 @@ begin
   if p_amount < jsonb_array_length(p_items) then
     perform private.refuse('M1', 'The amount has to cover at least a cent per deliverable');
   end if;
+  if p_amount > 1000000000 then
+    perform private.refuse('M1', 'One offer can be up to $10,000,000');
+  end if;
 end
 $$;
 
 create function private.check_title(p_title text) returns text
 language plpgsql
+set search_path = ''
 as $$
 begin
   if coalesce(length(trim(p_title)), 0) not between 1 and 120 then
@@ -93,6 +138,7 @@ $$;
 
 create function private.money(p_cents bigint) returns text
 language sql immutable
+set search_path = ''
 as $$ select '$' || to_char(p_cents / 100.0, 'FM999,999,999,990.00') $$;
 
 -- ---------------------------------------------------------------------------------------------------------------------
@@ -143,7 +189,8 @@ end
 $$;
 
 -- O1, K1: a brand books one of the creator's packages as it is: its price, one deliverable per module
-create function public.book_package(p_brand uuid, p_package uuid, p_note text default '') returns uuid
+create function public.book_package(p_brand uuid, p_package uuid, p_note text default '',
+                                    p_expected_price_cents bigint default null) returns uuid
 language plpgsql security definer set search_path = public, pg_temp
 as $$
 declare
@@ -158,6 +205,9 @@ begin
   v_uid := private.assert_acting('brand', p_brand, pk.creator_id);
   if not pk.active then
     perform private.refuse('K1', 'This package isn''t available any more');
+  end if;
+  if p_expected_price_cents is not null and p_expected_price_cents <> pk.price_cents then
+    perform private.refuse('K1', 'The price of this package is now ' || private.money(pk.price_cents) || '. Check it and book again');
   end if;
   perform private.check_terms(pk.price_cents, pk.items);
 
@@ -226,16 +276,23 @@ declare
   v_uid uuid;
   v_offer uuid;
   v_items jsonb;
+  v_old record;
   d public.deals;
 begin
-  d := private.lock_deal(p_deal);
-  v_uid := private.assert_acting('creator', d.brand_id, d.creator_id);
+  d := private.lock_deal_as(p_deal, 'creator');
+  v_uid := auth.uid();
   if d.status <> 'completed' then
     perform private.refuse('R5', 'You can book this brand again once this deal is complete');
   end if;
-  -- an earlier pitch whose reply window has passed is expired now, so it doesn't count
-  update public.offers set status = 'expired', closed_at = now()
-   where previous_deal_id = d.id and status in ('sent', 'countered') and expires_at <= now();
+  -- an earlier pitch whose reply window has passed is expired now, with its event, so it doesn't count
+  for v_old in
+    update public.offers set status = 'expired', closed_at = now()
+     where previous_deal_id = d.id and status in ('sent', 'countered') and expires_at <= now()
+    returning id, versions
+  loop
+    perform private.log_event('offer_expired', null, d.brand_id, d.creator_id, p_offer => v_old.id,
+                              p_data => jsonb_build_object('version', v_old.versions));
+  end loop;
   if exists (select 1 from public.offers o where o.previous_deal_id = d.id and o.status in ('sent', 'countered')) then
     perform private.refuse('R5', 'You already sent this package again. It''s waiting on their reply');
   end if;
@@ -275,8 +332,8 @@ declare
   o public.offers;
   last public.offer_versions;
 begin
-  o := private.lock_offer(p_offer);
-  v_uid := private.assert_acting(p_as, o.brand_id, o.creator_id);
+  o := private.lock_offer_as(p_offer, p_as);
+  v_uid := auth.uid();
   perform private.check_your_turn(o, p_as);
   if o.versions >= 9 then
     perform private.refuse('O10', 'Adjustment limit reached (8 of 8). Accept or decline instead');
@@ -317,8 +374,8 @@ declare
   o public.offers;
   last public.offer_versions;
 begin
-  o := private.lock_offer(p_offer);
-  v_uid := private.assert_acting(p_as, o.brand_id, o.creator_id);
+  o := private.lock_offer_as(p_offer, p_as);
+  v_uid := auth.uid();
   perform private.check_your_turn(o, p_as);
   select * into last from public.offer_versions where offer_id = o.id and version = o.versions;
   v_n := jsonb_array_length(last.items);
@@ -356,8 +413,7 @@ as $$
 declare
   o public.offers;
 begin
-  o := private.lock_offer(p_offer);
-  perform private.assert_acting(p_as, o.brand_id, o.creator_id);
+  o := private.lock_offer_as(p_offer, p_as);
   perform private.check_your_turn(o, p_as);
   update public.offers
      set status = 'declined', closed_at = now(), closed_by_side = p_as, close_reason = nullif(trim(p_reason), '')
@@ -374,8 +430,7 @@ as $$
 declare
   o public.offers;
 begin
-  o := private.lock_offer(p_offer);
-  perform private.assert_acting(p_as, o.brand_id, o.creator_id);
+  o := private.lock_offer_as(p_offer, p_as);
   if o.status not in ('sent', 'countered') then
     perform private.refuse('O11', 'This offer is no longer open: it was ' || o.status);
   end if;
@@ -403,7 +458,7 @@ declare
 begin
   for o in
     select * from public.offers where status in ('sent', 'countered') and expires_at <= now()
-    order by expires_at for update skip locked
+    order by expires_at for no key update skip locked
   loop
     update public.offers set status = 'expired', closed_at = now() where id = o.id;
     perform private.log_event('offer_expired', null, o.brand_id, o.creator_id, p_offer => o.id,
@@ -432,6 +487,7 @@ declare
   v_target uuid[];
   v_base bigint;
   v_basis bigint;
+  v_fees_before bigint;
   v_fee bigint;
   v_seq integer;
   v_first integer;
@@ -439,8 +495,8 @@ declare
   v_status public.payment_status;
   d public.deals;
 begin
-  d := private.lock_deal(p_deal);
-  v_uid := private.assert_acting('brand', d.brand_id, d.creator_id);
+  d := private.lock_deal_as(p_deal, 'brand');
+  v_uid := auth.uid();
   if d.status = 'cancelled' then
     perform private.refuse('E5', 'This deal was cancelled');
   end if;
@@ -466,20 +522,23 @@ begin
   end if;
 
   select sum(m.amount_cents), min(m.seq) into v_base, v_first from public.milestones m where m.id = any (v_target);
-  select coalesce(sum(p.base_cents), 0) into v_basis from public.payments p where p.deal_id = d.id and p.status <> 'failed';
+  select coalesce(sum(p.base_cents), 0), coalesce(sum(p.fee_cents), 0) into v_basis, v_fees_before
+  from public.payments p where p.deal_id = d.id and p.status <> 'failed';
   select coalesce(max(p.seq), 0) + 1 into v_seq from public.payments p where p.deal_id = d.id;
-  v_fee := public.fee_step(v_basis, v_base);
+  -- 5% of everything funded, rounded once, less what the deal's payments were already charged
+  v_fee := greatest(0, public.five_percent(v_basis + v_base) - v_fees_before);
   v_status := case
     when p_method = 'card' and v_provider = 'simulated' then 'succeeded'
     when p_method = 'wire' then 'awaiting_wire'
     else 'processing' end;
 
   insert into public.payments (id, deal_id, seq, brand_id, method, method_label, status, base_cents, fee_cents,
-                               fee_basis_cents, total_cents, reference, provider, created_by, created_at, succeeded_at)
+                               fee_basis_cents, fees_before_cents, total_cents, reference, provider, created_by, created_at,
+                               succeeded_at)
   values (v_pay, d.id, v_seq, d.brand_id, p_method,
           coalesce(nullif(trim(p_method_label), ''), case p_method when 'card' then 'Card' when 'bank' then 'Bank (ACH)' else 'Wire transfer' end),
-          v_status, v_base, v_fee, v_basis, v_base + v_fee,
-          'GI-' || upper(left(replace(d.id::text, '-', ''), 6)) || '-' || v_first || '-' || v_seq,
+          v_status, v_base, v_fee, v_basis, v_fees_before, v_base + v_fee,
+          'GI-' || upper(left(replace(v_pay::text, '-', ''), 12)),
           v_provider, v_uid, clock_timestamp(), case when v_status = 'succeeded' then now() end);
   insert into public.payment_milestones (payment_id, milestone_id, amount_cents)
   select v_pay, m.id, m.amount_cents from public.milestones m where m.id = any (v_target);
@@ -504,6 +563,7 @@ $$;
 -- harmless (payment providers retry their webhooks)
 create function private.clear_payment(p_payment uuid, p_side public.side) returns boolean
 language plpgsql
+set search_path = ''
 as $$
 declare
   pay public.payments;
@@ -514,7 +574,7 @@ begin
     perform private.not_found('Payment');
   end if;
   d := private.lock_deal(pay.deal_id);
-  select * into pay from public.payments where id = p_payment for update;
+  select * into pay from public.payments where id = p_payment for no key update;
   if pay.status = 'succeeded' then
     return false;
   end if;
@@ -536,6 +596,7 @@ $$;
 -- a payment that didn't go through: its milestones are back to not funded and can be funded again
 create function private.fail_payment(p_payment uuid, p_side public.side, p_reason text) returns boolean
 language plpgsql
+set search_path = ''
 as $$
 declare
   pay public.payments;
@@ -546,7 +607,7 @@ begin
     perform private.not_found('Payment');
   end if;
   d := private.lock_deal(pay.deal_id);
-  select * into pay from public.payments where id = p_payment for update;
+  select * into pay from public.payments where id = p_payment for no key update;
   if pay.status = 'failed' then
     return false;
   end if;
@@ -576,7 +637,7 @@ begin
   end if;
   select d.creator_id into v_creator from public.deals d where d.id = pay.deal_id;
   perform private.assert_acting('brand', pay.brand_id, v_creator);
-  if pay.provider <> 'simulated' then
+  if pay.provider <> 'simulated' or coalesce(private.setting('payments_provider'), '') <> 'simulated' then
     perform private.refuse('E3', 'Only demo payments can be cleared by hand');
   end if;
   if p_outcome = 'cleared' then
@@ -630,8 +691,8 @@ begin
   if not found then
     perform private.not_found('Deliverable');
   end if;
-  d := private.lock_deal(v_deal);
-  v_uid := private.assert_acting('creator', d.brand_id, d.creator_id);
+  d := private.lock_deal_as(v_deal, 'creator');
+  v_uid := auth.uid();
   select * into dl from public.deliverables where id = p_deliverable;
   select * into m from public.milestones where id = dl.milestone_id;
   select * into b from public.brands where id = d.brand_id;
@@ -686,9 +747,9 @@ begin
   if not found then
     perform private.not_found('Proof');
   end if;
-  d := private.lock_deal(v_deal);
-  v_uid := private.assert_acting('brand', d.brand_id, d.creator_id);
-  select * into pf from public.proofs where id = p_proof for update;
+  d := private.lock_deal_as(v_deal, 'brand');
+  v_uid := auth.uid();
+  select * into pf from public.proofs where id = p_proof for no key update;
   if pf.status = 'releasing' then
     perform private.refuse('P6', 'Already approved: it releases when the undo window ends');
   elsif pf.status = 'released' then
@@ -728,9 +789,8 @@ begin
   if not found then
     perform private.not_found('Proof');
   end if;
-  d := private.lock_deal(v_deal);
-  perform private.assert_acting('brand', d.brand_id, d.creator_id);
-  select * into pf from public.proofs where id = p_proof for update;
+  d := private.lock_deal_as(v_deal, 'brand');
+  select * into pf from public.proofs where id = p_proof for no key update;
   if pf.status = 'released' then
     perform private.refuse('P3', 'Too late: this proof is already released');
   elsif pf.status <> 'releasing' then
@@ -739,7 +799,9 @@ begin
   if pf.release_at <= now() then
     perform private.refuse('P3', 'Too late: the undo window has ended');
   end if;
-  update public.proofs set status = 'in_review', approved_by = null, approved_at = null, release_at = null where id = pf.id;
+  update public.proofs set status = 'in_review', approved_by = null, approved_at = null, release_at = null,
+                           review_started_at = now()
+   where id = pf.id;
   perform private.log_event('approval_undone', 'brand', d.brand_id, d.creator_id, p_deal => d.id, p_proof => pf.id,
                             p_amount => pf.value_cents);
 end
@@ -758,9 +820,8 @@ begin
   if not found then
     perform private.not_found('Proof');
   end if;
-  d := private.lock_deal(v_deal);
-  perform private.assert_acting('brand', d.brand_id, d.creator_id);
-  select * into pf from public.proofs where id = p_proof for update;
+  d := private.lock_deal_as(v_deal, 'brand');
+  select * into pf from public.proofs where id = p_proof for no key update;
   if pf.status = 'releasing' then
     perform private.refuse('P4', 'Undo the approval first');
   elsif pf.status = 'released' then
@@ -781,6 +842,7 @@ $$;
 -- when everything is released. Asking again returns the same release
 create function private.finalize_release(p_proof uuid) returns uuid
 language plpgsql
+set search_path = ''
 as $$
 declare
   v_deal uuid;
@@ -798,7 +860,7 @@ begin
     perform private.not_found('Proof');
   end if;
   d := private.lock_deal(v_deal);
-  select * into pf from public.proofs where id = p_proof for update;
+  select * into pf from public.proofs where id = p_proof for no key update;
   if pf.status = 'released' then
     select r.id into v_release from public.releases r where r.proof_id = pf.id;
     return v_release;
@@ -809,8 +871,8 @@ begin
   if pf.release_at > now() then
     perform private.refuse('P2', 'The undo window hasn''t ended yet');
   end if;
-  select * into m from public.milestones where id = pf.milestone_id for update;
-  select * into dl from public.deliverables where id = pf.deliverable_id for update;
+  select * into m from public.milestones where id = pf.milestone_id for no key update;
+  select * into dl from public.deliverables where id = pf.deliverable_id for no key update;
   if m.status <> 'in_escrow' or m.released_cents + pf.value_cents > m.amount_cents or pf.value_cents <> dl.amount_cents then
     raise exception 'Escrow for milestone % can''t cover proof %', m.id, pf.id;
   end if;
@@ -865,31 +927,28 @@ declare
   r record;
   n integer := 0;
 begin
+  -- one pass in deal order, so two runs at once take their locks in the same order and never deadlock
   for r in
-    select p.id, p.deal_id from public.proofs p
-    where p.status = 'in_review' and p.submitted_at <= now() - interval '5 days'
-    order by p.submitted_at limit 500
+    select p.id, p.deal_id, p.status from public.proofs p
+    where (p.status = 'in_review' and p.review_started_at <= now() - interval '5 days')
+       or (p.status = 'releasing' and p.release_at <= now())
+    order by p.deal_id, p.id
+    limit 1000
   loop
     begin
       perform private.lock_deal(r.deal_id);
-      update public.proofs set status = 'releasing', approved_at = now(), release_at = now()
-       where id = r.id and status = 'in_review';
-      if found then
-        perform private.log_event('proof_auto_approved', null, d.brand_id, d.creator_id, p_deal => d.id, p_proof => r.id)
-        from public.deals d where d.id = r.deal_id;
+      if r.status = 'in_review' then
+        update public.proofs set status = 'releasing', approved_at = now(), release_at = now()
+         where id = r.id and status = 'in_review' and review_started_at <= now() - interval '5 days';
+        if found then
+          perform private.log_event('proof_auto_approved', null, d.brand_id, d.creator_id, p_deal => d.id, p_proof => r.id)
+          from public.deals d where d.id = r.deal_id;
+        end if;
       end if;
-    exception when others then
-      raise warning 'auto-approval of proof % failed: %', r.id, sqlerrm;
-    end;
-  end loop;
-  for r in
-    select p.id from public.proofs p
-    where p.status = 'releasing' and p.release_at <= now()
-    order by p.release_at limit 500
-  loop
-    begin
-      perform private.finalize_release(r.id);
-      n := n + 1;
+      if exists (select 1 from public.proofs p where p.id = r.id and p.status = 'releasing' and p.release_at <= now()) then
+        perform private.finalize_release(r.id);
+        n := n + 1;
+      end if;
     exception when others then
       raise warning 'release of proof % failed: %', r.id, sqlerrm;
     end;
@@ -904,6 +963,7 @@ $$;
 -- how many deliverables a new period repeats: a monthly deal repeats its latest month, any other deal its own
 create function private.renewal_template_size(d public.deals) returns integer
 language sql stable
+set search_path = ''
 as $$
   select case when d.type = 'monthly' then (
            select count(*)::integer from public.deliverables dl
@@ -916,6 +976,7 @@ $$;
 
 create function private.check_renewal_terms(d public.deals, p_months integer, p_price bigint) returns void
 language plpgsql
+set search_path = ''
 as $$
 begin
   if d.status = 'cancelled' then
@@ -933,12 +994,16 @@ begin
   if p_price < greatest(private.renewal_template_size(d), 1) then
     perform private.refuse('M1', 'The price has to cover at least a cent per deliverable');
   end if;
+  if p_price > 1000000000 then
+    perform private.refuse('M1', 'A renewal period can be up to $10,000,000');
+  end if;
 end
 $$;
 
 -- R3: an accepted renewal adds the new period as milestones to fund, with the same deliverables again
 create function private.add_renewal_period(p_deal uuid, p_renewal uuid) returns void
 language plpgsql
+set search_path = ''
 as $$
 declare
   d public.deals;
@@ -1024,8 +1089,8 @@ declare
   d public.deals;
   open_one public.renewals;
 begin
-  d := private.lock_deal(p_deal);
-  v_uid := private.assert_acting('brand', d.brand_id, d.creator_id);
+  d := private.lock_deal_as(p_deal, 'brand');
+  v_uid := auth.uid();
   perform private.check_renewal_terms(d, p_months, p_price_cents);
   select * into open_one from public.renewals where deal_id = d.id and status in ('sent', 'requested');
   if found then
@@ -1054,8 +1119,8 @@ declare
   d public.deals;
   open_one public.renewals;
 begin
-  d := private.lock_deal(p_deal);
-  v_uid := private.assert_acting('creator', d.brand_id, d.creator_id);
+  d := private.lock_deal_as(p_deal, 'creator');
+  v_uid := auth.uid();
   v_months := coalesce(p_months, case when d.type = 'monthly' then 3 else 1 end);
   v_price := coalesce(p_price_cents, case when d.type = 'monthly' then (
                 select m.amount_cents from public.milestones m where m.deal_id = d.id and m.period_id is not null
@@ -1089,9 +1154,9 @@ begin
   if not found then
     perform private.not_found('Renewal');
   end if;
-  d := private.lock_deal(v_deal);
-  v_uid := private.assert_acting(p_as, d.brand_id, d.creator_id);
-  select * into r from public.renewals where id = p_renewal for update;
+  d := private.lock_deal_as(v_deal, p_as);
+  v_uid := auth.uid();
+  select * into r from public.renewals where id = p_renewal for no key update;
   if r.status not in ('sent', 'requested') then
     perform private.refuse('R4', 'This renewal was already ' || r.status);
   end if;
@@ -1129,9 +1194,9 @@ begin
   if not found then
     perform private.not_found('Renewal');
   end if;
-  d := private.lock_deal(v_deal);
-  v_uid := private.assert_acting(p_as, d.brand_id, d.creator_id);
-  select * into r from public.renewals where id = p_renewal for update;
+  d := private.lock_deal_as(v_deal, p_as);
+  v_uid := auth.uid();
+  select * into r from public.renewals where id = p_renewal for no key update;
   if r.status not in ('sent', 'requested') then
     perform private.refuse('R4', 'The renewal was already ' || r.status);
   end if;
@@ -1155,8 +1220,8 @@ declare
   v_rating uuid;
   d public.deals;
 begin
-  d := private.lock_deal(p_deal);
-  v_uid := private.assert_acting(p_as, d.brand_id, d.creator_id);
+  d := private.lock_deal_as(p_deal, p_as);
+  v_uid := auth.uid();
   if d.status <> 'completed' then
     perform private.refuse('T1', 'You can rate once the deal is complete');
   end if;
@@ -1183,6 +1248,7 @@ declare
   v_uid uuid;
   v_conv uuid;
   v_msg uuid;
+  v_seq bigint;
 begin
   v_uid := private.assert_acting(p_as, p_brand, p_creator);
   if not exists (select 1 from public.brands b where b.id = p_brand) then
@@ -1195,12 +1261,18 @@ begin
     perform private.refuse('C1', 'Write a message of up to 4,000 characters');
   end if;
   v_conv := private.ensure_conversation(p_brand, p_creator);
-  insert into public.messages (conversation_id, sender_side, sender_id, body)
-  values (v_conv, p_as, v_uid, trim(p_body))
+  -- messages in a thread take numbers in the order they're saved (the thread is locked while one is added), so
+  -- "read up to message n" never covers a message that was still being sent
+  select c.last_message_seq + 1 into v_seq from public.conversations c where c.id = v_conv for no key update;
+  insert into public.messages (conversation_id, sender_side, sender_id, body, seq)
+  values (v_conv, p_as, v_uid, trim(p_body), v_seq)
   returning id into v_msg;
-  update public.conversations set last_message_at = now() where id = v_conv;
-  insert into public.conversation_reads (conversation_id, side, last_read_at) values (v_conv, p_as, clock_timestamp())
-  on conflict (conversation_id, side) do update set last_read_at = greatest(public.conversation_reads.last_read_at, excluded.last_read_at);
+  update public.conversations set last_message_at = now(), last_message_seq = v_seq where id = v_conv;
+  insert into public.conversation_reads (conversation_id, side, last_read_seq, last_read_at)
+  values (v_conv, p_as, v_seq, clock_timestamp())
+  on conflict (conversation_id, side) do update
+    set last_read_seq = greatest(public.conversation_reads.last_read_seq, excluded.last_read_seq),
+        last_read_at = excluded.last_read_at;
   insert into public.notifications (user_id, kind)
   select t.user_id, 'message' from (
     select c.owner_id as user_id from public.creators c where c.id = p_creator and p_as = 'brand'
@@ -1211,20 +1283,28 @@ begin
 end
 $$;
 
--- C1: opening the thread marks it read for that side; the other side then sees "seen"
-create function public.mark_read(p_conversation uuid, p_as public.side) returns void
+-- C1: opening the thread marks it read for that side, up to the last message the app showed (or every message saved
+-- so far); the other side then sees "seen"
+create function public.mark_read(p_conversation uuid, p_as public.side, p_upto_seq bigint default null) returns bigint
 language plpgsql security definer set search_path = public, pg_temp
 as $$
 declare
   c public.conversations;
+  v_upto bigint;
 begin
   select * into c from public.conversations where id = p_conversation;
   if not found then
     perform private.not_found('Conversation');
   end if;
   perform private.assert_acting(p_as, c.brand_id, c.creator_id);
-  insert into public.conversation_reads (conversation_id, side, last_read_at) values (c.id, p_as, clock_timestamp())
-  on conflict (conversation_id, side) do update set last_read_at = greatest(public.conversation_reads.last_read_at, excluded.last_read_at);
+  select coalesce(max(m.seq), 0) into v_upto from public.messages m where m.conversation_id = c.id;
+  v_upto := least(coalesce(p_upto_seq, v_upto), v_upto);
+  insert into public.conversation_reads (conversation_id, side, last_read_seq, last_read_at)
+  values (c.id, p_as, v_upto, clock_timestamp())
+  on conflict (conversation_id, side) do update
+    set last_read_seq = greatest(public.conversation_reads.last_read_seq, excluded.last_read_seq),
+        last_read_at = excluded.last_read_at;
+  return v_upto;
 end
 $$;
 
@@ -1261,11 +1341,11 @@ declare
   v_fee bigint;
   v_provider text := coalesce(private.setting('payments_provider'), 'simulated');
 begin
-  perform 1 from public.creators where id = p_creator for update;
-  if not found then
+  if not exists (select 1 from public.creators c where c.id = p_creator) then
     perform private.not_found('Creator');
   end if;
   v_uid := private.assert_acting('creator', null, p_creator);
+  perform 1 from public.creators where id = p_creator for no key update;
   v_available := (select coalesce(sum(r.net_cents), 0) from public.releases r where r.creator_id = p_creator)
                - (select coalesce(sum(o.amount_cents), 0) from public.payouts o where o.creator_id = p_creator and o.status <> 'failed');
   v_amount := coalesce(p_amount_cents, v_available);
@@ -1300,12 +1380,15 @@ as $$
 declare
   po public.payouts;
 begin
+  if p_paid is null then
+    perform private.refuse('M5', 'Say whether the payout was paid');
+  end if;
   select * into po from public.payouts where id = p_payout;
   if not found then
     perform private.not_found('Payout');
   end if;
-  perform 1 from public.creators where id = po.creator_id for update;
-  select * into po from public.payouts where id = p_payout for update;
+  perform 1 from public.creators where id = po.creator_id for no key update;
+  select * into po from public.payouts where id = p_payout for no key update;
   if po.status <> 'pending' then
     return false;
   end if;
@@ -1346,7 +1429,11 @@ begin
   if exists (select 1 from public.brands b where b.slug = v_slug) then
     perform private.refuse('account', 'That brand name is taken');
   end if;
-  insert into public.brands (name, slug) values (trim(p_name), v_slug) returning id into v_brand;
+  begin
+    insert into public.brands (name, slug) values (trim(p_name), v_slug) returning id into v_brand;
+  exception when unique_violation then
+    perform private.refuse('account', 'That brand name is taken');
+  end;
   insert into public.brand_members (brand_id, user_id, role) values (v_brand, auth.uid(), 'owner');
   return v_brand;
 end
@@ -1374,8 +1461,12 @@ begin
   if coalesce(length(trim(p_display_name)), 0) not between 1 and 80 then
     perform private.refuse('account', 'Give your profile a name of up to 80 characters');
   end if;
-  insert into public.creators (owner_id, handle, display_name) values (auth.uid(), p_handle, trim(p_display_name))
-  returning id into v_creator;
+  begin
+    insert into public.creators (owner_id, handle, display_name) values (auth.uid(), p_handle, trim(p_display_name))
+    returning id into v_creator;
+  exception when unique_violation then
+    perform private.refuse('account', 'That handle is taken, or you already have a creator profile');
+  end;
   return v_creator;
 end
 $$;

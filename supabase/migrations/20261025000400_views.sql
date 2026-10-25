@@ -102,7 +102,7 @@ create view public.todos with (security_invoker = true) as
   from public.offers o join public.offer_versions v on v.offer_id = o.id and v.version = o.versions
   where o.status = 'sent' and o.expires_at > now() and o.creator_id in (select private.my_creator_ids())
   union all
-  select 'brand', d.brand_id, d.creator_id, 'review_proof', p.id, dl.label, p.value_cents, p.submitted_at + interval '5 days'
+  select 'brand', d.brand_id, d.creator_id, 'review_proof', p.id, dl.label, p.value_cents, p.review_started_at + interval '5 days'
   from public.proofs p join public.deals d on d.id = p.deal_id join public.deliverables dl on dl.id = p.deliverable_id
   where p.status = 'in_review' and d.brand_id in (select private.my_brand_ids())
   union all
@@ -119,7 +119,7 @@ create view public.todos with (security_invoker = true) as
   where ((s.side = 'brand' and c.brand_id in (select private.my_brand_ids()))
       or (s.side = 'creator' and c.creator_id in (select private.my_creator_ids())))
     and exists (select 1 from public.messages m where m.conversation_id = c.id and m.sender_side <> s.side
-                and m.created_at > coalesce(cr.last_read_at, '-infinity'::timestamptz));
+                and m.seq > coalesce(cr.last_read_seq, 0));
 
 -- C1, C2: a conversation as both sides see it: messages and the offer, deal, funding, proof and payout events
 create view public.conversation_timeline with (security_invoker = true) as

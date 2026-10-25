@@ -52,6 +52,12 @@ dbTest('K1: the creator\'s own packages are what brands book, one deliverable pe
   assert.equal(o.amount_cents, 72999);
   assert.deepEqual(o.items, items);
   assert.equal(o.waiting_on, 'creator');
+  // booking says the price the brand saw: a price changed in the meantime is refused, not booked
+  await w.C.query('update public.packages set price_cents = 79999 where id = $1', [pkg]);
+  const changed = await refusal(w.B.rpc('book_package', { p_brand: w.brand, p_package: pkg, p_expected_price_cents: 72999 }));
+  assert.equal(changed.rule, 'K1');
+  assert.match(changed.message, /\$799\.99/);
+  assert.ok(await w.B.rpc('book_package', { p_brand: w.brand, p_package: pkg, p_expected_price_cents: 79999 }));
   // a package taken off sale can't be booked, and nobody else can add packages to this creator
   await w.C.query('update public.packages set active = false where id = $1', [pkg]);
   assert.equal((await w.B.query('select count(*)::int as n from public.packages where id = $1', [pkg]))[0].n, 0);
@@ -238,6 +244,8 @@ dbTest('offers: terms are checked: an amount above $0, 1 to 20 named deliverable
   assert.equal((await refusal(send(10000, Array.from({ length: 21 }, (_, i) => ({ label: 'D' + i }))))).rule, 'K1');
   assert.equal((await refusal(send(2, ITEMS3))).rule, 'M1');
   assert.equal((await refusal(send(100, ITEMS3, '   '))).rule, 'O1');
+  assert.equal((await refusal(send(1_000_000_001, ITEMS3))).rule, 'M1', 'one offer is at most $10,000,000');
+  assert.ok(await send(1_000_000_000, ITEMS3));
   const ok = await send(3, ITEMS3);
   const deal = await w.C.rpc('accept_offer', { p_offer: ok, p_as: 'creator' });
   assert.deepEqual((await w.milestones(deal)).map((m) => m.amount_cents), [1, 1, 1]);
@@ -259,6 +267,7 @@ dbTest('R5: book again sends the same package as a pitch, once the deal is compl
   const r = await refusal(w.C.rpc('book_again', { p_deal: deal }));
   assert.equal(r.rule, 'R5');
   assert.match(r.message, /already sent/);
+  const expiredBefore = (await w.events('offer_expired')).length;
   // the brand can't book again for the creator, and an outsider can't either
   assert.equal((await refusal(w.B.rpc('book_again', { p_deal: deal }))).code, '42501');
   // once that pitch is answered (or its window passes), another can go
@@ -268,4 +277,5 @@ dbTest('R5: book again sends the same package as a pitch, once the deal is compl
   const third = await w.C.rpc('book_again', { p_deal: deal });
   assert.equal((await w.offerRow(second)).status, 'expired');
   assert.equal((await w.offerRow(third)).status, 'countered');
+  assert.equal((await w.events('offer_expired')).length, expiredBefore + 1, 'the expired pitch has its event');
 });

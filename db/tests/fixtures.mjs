@@ -46,6 +46,8 @@ export function dbTest(name, fn, { seed = false, only = false } = {}) {
 }
 
 export async function world(db) {
+  // the tests run like the demo: simulated payments (a real project starts on Stripe, where every payment waits)
+  await db.q("update private.settings set value = 'simulated' where key = 'payments_provider'");
   const B = await db.user('VOLTEDGE manager');
   const C = await db.user('Instant Shock');
   const X = await db.user('Outsider');

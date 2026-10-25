@@ -10,16 +10,35 @@ alter default privileges in schema private revoke execute on functions from publ
 -- ---------------------------------------------------------------------------------------------------------------------
 -- Settings
 -- ---------------------------------------------------------------------------------------------------------------------
--- payments_provider: 'simulated' (the demo: cards clear at once, bank and wire clear by hand) or 'stripe' (every payment
--- waits for Stripe's webhook, which calls confirm_payment with the service key)
+-- payments_provider: 'stripe' (every payment waits for Stripe's webhook, which calls confirm_payment with the service
+-- key) or 'simulated' (the demo: cards clear at once, bank and wire clear by hand). Every project starts on 'stripe',
+-- so nothing is ever funded for free on a real project: until Stripe is connected, payments simply wait. Only the demo
+-- seed switches to 'simulated'. The provider can change only before any money has moved, so simulated money can never
+-- be paid out as real money
 create table private.settings (
   key text primary key,
-  value text not null
+  value text not null,
+  constraint settings_known check (key <> 'payments_provider' or value in ('simulated', 'stripe'))
 );
-insert into private.settings (key, value) values ('payments_provider', 'simulated');
+insert into private.settings (key, value) values ('payments_provider', 'stripe');
+
+create function private.settings_guard() returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.key = 'payments_provider' and new.value is distinct from old.value
+     and (exists (select 1 from public.payments) or exists (select 1 from public.payouts)) then
+    raise exception 'The payments provider can only change before any money has moved (this database has payments or payouts)';
+  end if;
+  return new;
+end
+$$;
+create trigger settings_guard before update on private.settings for each row execute function private.settings_guard();
 
 create function private.setting(p_key text) returns text
 language sql stable
+set search_path = ''
 as $$ select s.value from private.settings s where s.key = p_key $$;
 
 -- ---------------------------------------------------------------------------------------------------------------------
@@ -29,6 +48,7 @@ as $$ select s.value from private.settings s where s.key = p_key $$;
 -- ---------------------------------------------------------------------------------------------------------------------
 create function private.refuse(p_rule text, p_message text) returns void
 language plpgsql
+set search_path = ''
 as $$
 begin
   raise exception using message = p_message, errcode = 'P0001', hint = p_rule;
@@ -37,6 +57,7 @@ $$;
 
 create function private.not_found(p_what text) returns void
 language plpgsql
+set search_path = ''
 as $$
 begin
   raise exception using message = p_what || ' not found', errcode = 'P0002', hint = 'not_found';
@@ -77,8 +98,26 @@ as $$
      or exists (select 1 from public.platform_admins a where a.user_id = auth.uid())
 $$;
 
+-- the people someone deals with: their brands' teammates, and the people on the other side of every conversation they
+-- are in (every offer and deal has one). Profile names are visible to these people only
+create function private.my_contact_ids() returns setof uuid
+language sql stable security definer set search_path = ''
+as $$
+  select auth.uid()
+  union
+  select m.user_id from public.brand_members m
+  where m.brand_id in (select x.brand_id from public.brand_members x where x.user_id = auth.uid())
+  union
+  select c.owner_id from public.conversations v join public.creators c on c.id = v.creator_id
+  where v.brand_id in (select x.brand_id from public.brand_members x where x.user_id = auth.uid())
+  union
+  select m.user_id from public.conversations v join public.brand_members m on m.brand_id = v.brand_id
+  where v.creator_id in (select c.id from public.creators c where c.owner_id = auth.uid())
+$$;
+
 create function private.side_label(p_side public.side) returns text
 language sql immutable
+set search_path = ''
 as $$ select case p_side when 'brand' then 'the brand' else 'the creator' end $$;
 
 -- the person acting, after checking they sit on that side of this brand and creator
@@ -109,6 +148,7 @@ $$;
 -- proof files live in the proofs bucket under <deal id>/...
 create function private.deal_of_path(p_name text) returns uuid
 language plpgsql immutable
+set search_path = ''
 as $$
 begin
   return split_part(p_name, '/', 1)::uuid;
@@ -137,6 +177,7 @@ create function private.post_ledger(
   p_deal uuid default null, p_payment uuid default null, p_release uuid default null, p_payout uuid default null
 ) returns uuid
 language plpgsql
+set search_path = ''
 as $$
 declare
   txn uuid := gen_random_uuid();
@@ -166,10 +207,14 @@ create function private.log_event(
   p_renewal uuid default null, p_amount bigint default null, p_data jsonb default '{}'::jsonb
 ) returns bigint
 language plpgsql
+set search_path = ''
 as $$
 declare
   eid bigint;
 begin
+  if p_brand is not null and p_creator is not null then
+    perform private.ensure_conversation(p_brand, p_creator);
+  end if;
   insert into public.events (kind, actor_id, actor_side, brand_id, creator_id, offer_id, deal_id, payment_id, proof_id,
                              renewal_id, amount_cents, data)
   values (p_kind, auth.uid(), p_side, p_brand, p_creator, p_offer, p_deal, p_payment, p_proof, p_renewal, p_amount,
@@ -191,6 +236,7 @@ $$;
 
 create function private.ensure_conversation(p_brand uuid, p_creator uuid) returns uuid
 language plpgsql
+set search_path = ''
 as $$
 declare
   cid uuid;
@@ -206,6 +252,7 @@ $$;
 -- awaiting funding. A renewal adds milestones to fund, so a completed deal can go back to in progress.
 create function private.refresh_deal_status(p_deal uuid) returns public.deal_status
 language plpgsql
+set search_path = ''
 as $$
 declare
   d public.deals;
@@ -244,6 +291,7 @@ $$;
 -- ---------------------------------------------------------------------------------------------------------------------
 create function private.audit_money() returns setof text
 language plpgsql stable
+set search_path = ''
 as $$
 begin
   -- the ledger: every transaction balances
@@ -300,21 +348,39 @@ begin
     where p.status <> 'failed'
     group by pm.milestone_id having count(*) > 1;
 
-  -- M2: the brand fee is 5% of everything funded on a deal, rounded once. Each payment's fee is what it added to the
-  -- rounded running total; with no failed payments the deal's fees are exactly 5% of its funded total
+  -- M2: the brand fee is 5% of everything funded on a deal, rounded once. Each payment is priced on what the deal had
+  -- funded, and been charged, before it among payments that hadn't failed. (a) With no failed payment on a deal, that is
+  -- exactly every payment before it
   return query
-    select format('payment %s: fee basis %s, but the deal had %s funded before it', p.id, p.fee_basis_cents, b.before)
+    select format('payment %s was priced on %s funded and %s in fees, but the deal had %s and %s before it',
+                  p.id, p.fee_basis_cents, p.fees_before_cents, b.base, b.fees)
     from public.payments p
-    cross join lateral (select coalesce(sum(q.base_cents), 0) as before from public.payments q
-                        where q.deal_id = p.deal_id and q.seq < p.seq) b
+    cross join lateral (select coalesce(sum(q.base_cents), 0) as base, coalesce(sum(q.fee_cents), 0) as fees
+                        from public.payments q where q.deal_id = p.deal_id and q.seq < p.seq) b
     where not exists (select 1 from public.payments f where f.deal_id = p.deal_id and f.status = 'failed')
-      and p.fee_basis_cents <> b.before;
+      and (p.fee_basis_cents <> b.base or p.fees_before_cents <> b.fees);
+  -- (b) a deal's fees are exactly 5% of what it has funded, unless a payment failed after its latest payment was priced:
+  -- then they can be a cent off per failure, until the next payment takes it up
   return query
-    select format('deal %s: brand fees %s, 5%% of %s funded is %s', p.deal_id, sum(p.fee_cents), sum(p.base_cents), public.five_percent(sum(p.base_cents)::bigint))
-    from public.payments p
-    where p.status <> 'failed'
-      and not exists (select 1 from public.payments f where f.deal_id = p.deal_id and f.status = 'failed')
-    group by p.deal_id having sum(p.fee_cents) <> public.five_percent(sum(p.base_cents)::bigint);
+    with nf as (select q.* from public.payments q where q.status <> 'failed'),
+         tot as (select nf.deal_id, sum(nf.base_cents)::bigint as base, sum(nf.fee_cents)::bigint as fees from nf group by nf.deal_id),
+         lst as (select distinct on (nf.deal_id) nf.* from nf order by nf.deal_id, nf.seq desc),
+         nfail as (select q.deal_id, count(*)::bigint as n from public.payments q where q.status = 'failed' group by q.deal_id)
+    select format('deal %s: brand fees %s, 5%% of %s funded is %s', t.deal_id, t.fees, t.base, public.five_percent(t.base))
+    from tot t join lst l on l.deal_id = t.deal_id left join nfail f on f.deal_id = t.deal_id
+    where case
+      when t.base - l.base_cents = l.fee_basis_cents and t.fees - l.fee_cents = l.fees_before_cents
+        then t.fees <> greatest(l.fees_before_cents, public.five_percent(t.base))
+      else abs(t.fees - public.five_percent(t.base)) > coalesce(f.n, 0)
+    end;
+
+  -- simulated money and real money never meet on one database
+  return query
+    select 'simulated and real payments or payouts are on the same database'::text
+    where exists (select 1 from public.payments q where q.provider = 'simulated'
+                  union all select 1 from public.payouts o where o.provider = 'simulated')
+      and exists (select 1 from public.payments q where q.provider <> 'simulated'
+                  union all select 1 from public.payouts o where o.provider <> 'simulated');
 
   -- M3: the creator fee is 5% of everything released on a deal, rounded once
   return query
@@ -425,6 +491,7 @@ $$;
 -- ---------------------------------------------------------------------------------------------------------------------
 create function private.touch_updated_at() returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   new.updated_at := now();

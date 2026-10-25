@@ -28,6 +28,10 @@ Then check the scheduler: `select jobname, schedule from cron.job;` should list 
 
 Without the CLI, paste the five migration files into the SQL editor in order.
 
+Supabase's Security Advisor will list the action functions as security definer functions that signed-in users can
+call. That is by design: they are the only way to change offers, deals and money, and each one checks who is asking
+and which seat they act for before it changes anything.
+
 ## Run it on your computer
 
 ```bash
@@ -73,7 +77,7 @@ account does), so the function needs to know which seat the move comes from, and
 
 | Function | Who | Rules |
 |---|---|---|
-| `send_offer`, `book_package` | brand | O1, K1 |
+| `send_offer`, `book_package` (with the price the brand saw) | brand | O1, K1 |
 | `pitch_offer`, `book_again` | creator | O2, R5 |
 | `counter_offer`, `accept_offer`, `decline_offer` | the side the offer waits on | O3-O6, O8-O11, M1 |
 | `withdraw_offer` | the side whose version is waiting | O7 |
@@ -84,7 +88,7 @@ account does), so the function needs to know which seat the move comes from, and
 | `finalize_release` | either party (the app calls it when the undo window ends) | P2, P5, P6, M3 |
 | `offer_renewal`, `request_renewal`, `answer_renewal`, `withdraw_renewal` | brand, creator, the other side, the opener | R1-R4 |
 | `rate_deal` | either side, once, after completion | T1, T2 |
-| `send_message`, `mark_read` | either side | C1 |
+| `send_message`, `mark_read` (up to the last message shown) | either side | C1 |
 | `request_payout` | creator | M5 |
 | `mark_notifications_read`, `create_brand`, `create_creator_profile` | anyone signed in | |
 | `confirm_payment`, `fail_payment`, `complete_payout` | service key only (payment webhooks) | E3, E4 |
@@ -95,15 +99,15 @@ Refusals come back as errors with the reason in `message` and the rule in `hint`
 
 ## Payments
 
-Payments start simulated, as in the prototype: a card is in escrow at once, and the brand clears a bank payment or a
-wire by hand (`simulate_payment`). To use Stripe, set the provider in the SQL editor:
+Every project starts on Stripe: a payment waits for Stripe's webhook, so nothing is ever funded for free on a real
+project. The demo seed switches the database to simulated payments, as the prototype has them: a card is in escrow at
+once, and the brand clears a bank payment or a wire by hand (`simulate_payment`). The provider can only change before
+any money has moved, so simulated money can never be paid out as real money.
 
-```sql
-update private.settings set value = 'stripe' where key = 'payments_provider';
-```
-
-Every payment then waits for Stripe: an Edge Function receives Stripe's webhook and calls `confirm_payment` or
-`fail_payment` with the service key (and `complete_payout` for payouts).
+When Stripe is connected, an Edge Function receives Stripe's webhooks and calls `confirm_payment` or `fail_payment`
+with the service key, and `complete_payout` for payouts. Call `fail_payment` only for a payment that can no longer
+succeed (canceled, or failed with no retry left): the brand can then fund those milestones again, so a payment marked
+failed that succeeds afterwards is refused and should be refunded.
 
 ## Tests
 

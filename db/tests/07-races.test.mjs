@@ -121,6 +121,34 @@ dbTest('two tabs upload proof for the same deliverable at once: one proof in rev
   assert.equal((await w.db.q('select count(*)::int as n from public.proofs'))[0].n, 1);
 });
 
+dbTest('two people take the same brand name or handle at the same instant: one gets it, the other a clear refusal', async (w) => {
+  const P = await w.db.user('Person P');
+  const Q = await w.db.user('Person Q');
+  let r = await race(w.db, [P, 'create_brand', { p_name: 'NEON RUSH' }], [Q, 'create_brand', { p_name: 'Neon Rush' }]);
+  assert.equal(r.second.err.rule, 'account');
+  assert.match(r.second.err.message, /taken/);
+  r = await race(w.db, [P, 'create_creator_profile', { p_handle: 'neonrush', p_display_name: 'Neon' }],
+    [Q, 'create_creator_profile', { p_handle: 'NeonRush', p_display_name: 'Neon too' }]);
+  assert.equal(r.second.err.rule, 'account');
+  assert.equal((await w.db.q("select count(*)::int as n from public.brands where slug = 'neon-rush'"))[0].n, 1);
+});
+
+dbTest('someone who isn\'t a party is turned away at once, without waiting for (or taking) the deal\'s lock', async (w) => {
+  const deal = await w.deal();
+  await w.fund(deal);
+  const proof = await w.deliver(deal, 1);
+  const holding = await w.B.hold();
+  await holding.rpc('approve_proof', { p_proof: proof });         // the brand holds the deal's lock
+  const t0 = Date.now();
+  const r = await Promise.race([
+    w.X.rpcOwn('fund_milestones', { p_deal: deal, p_method: 'card' }).then(() => 'funded', (e) => e.code),
+    new Promise((res) => setTimeout(() => res('waited'), 2000)),
+  ]);
+  assert.equal(r, '42501');
+  assert.ok(Date.now() - t0 < 1500);
+  await holding.commit();
+});
+
 dbTest('many connections at once: 12 fundings of 5 milestones, 20 approvals of one proof, 30 payouts of $10 from $190', async (w) => {
   const deal = await w.deal({ amount: 100000, items: [1, 2, 3, 4, 5].map((i) => ({ label: 'Part ' + i })) });
   const fundings = await Promise.allSettled(Array.from({ length: 12 }, (_, i) =>

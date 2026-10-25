@@ -12,6 +12,8 @@
 -- Start from nothing
 -- ---------------------------------------------------------------------------------------------------------------------
 revoke all on all tables in schema public from anon, authenticated;
+-- the service key reads what it needs and changes things only through the backend functions, like everyone else
+revoke insert, update, delete, truncate on all tables in schema public from service_role;
 revoke all on all sequences in schema public from anon, authenticated;
 revoke execute on all functions in schema public from public, anon, authenticated;
 revoke execute on all functions in schema private from public, anon, authenticated;
@@ -40,6 +42,7 @@ $$;
 -- the helpers the policies call (they only read)
 grant execute on function private.my_brand_ids(), private.my_creator_ids(), private.my_deal_ids(), private.is_admin(),
   private.is_brand_member(uuid), private.is_creator_owner(uuid), private.can_upload_proof(text), private.can_read_proof(text),
+  private.my_contact_ids(),
   private.deal_of_path(text), private.waiting_on(public.offer_status)
   to authenticated, service_role;
 grant execute on function public.items_valid(jsonb), public.five_percent(bigint), public.fee_step(bigint, bigint),
@@ -47,7 +50,8 @@ grant execute on function public.items_valid(jsonb), public.five_percent(bigint)
   to anon, authenticated;
 
 -- accounts
-create policy "profiles: signed-in people see names" on public.profiles for select to authenticated using (true);
+create policy "profiles: the people you deal with" on public.profiles for select to authenticated
+  using (id in (select private.my_contact_ids()) or (select private.is_admin()));
 create policy "profiles: edit your own" on public.profiles for update to authenticated
   using (id = (select auth.uid())) with check (id = (select auth.uid()));
 
@@ -152,7 +156,8 @@ create policy "notifications: your own" on public.notifications for select to au
 -- ---------------------------------------------------------------------------------------------------------------------
 -- Table access (row-level security then picks the rows)
 -- ---------------------------------------------------------------------------------------------------------------------
-grant select on public.creators, public.brands, public.packages, public.campaigns to anon;
+grant select on public.brands, public.packages, public.campaigns to anon;
+grant select (id, handle, display_name, bio, avatar_url, platforms, created_at) on public.creators to anon;
 grant select on all tables in schema public to authenticated;  -- the ledger too, but its policy shows it to staff only
 
 grant update (display_name, avatar_url) on public.profiles to authenticated;
@@ -169,7 +174,7 @@ grant insert (campaign_id, creator_id), delete on public.campaign_shortlist to a
 -- ---------------------------------------------------------------------------------------------------------------------
 grant execute on function
   public.send_offer(uuid, uuid, text, bigint, jsonb, text, uuid),
-  public.book_package(uuid, uuid, text),
+  public.book_package(uuid, uuid, text, bigint),
   public.pitch_offer(uuid, uuid, uuid, text, bigint, jsonb, text),
   public.book_again(uuid, text),
   public.counter_offer(uuid, public.side, bigint, text, jsonb),
@@ -189,7 +194,7 @@ grant execute on function
   public.withdraw_renewal(uuid, public.side),
   public.rate_deal(uuid, public.side, integer, text),
   public.send_message(uuid, uuid, public.side, text),
-  public.mark_read(uuid, public.side),
+  public.mark_read(uuid, public.side, bigint),
   public.mark_notifications_read(bigint[]),
   public.request_payout(uuid, bigint, boolean),
   public.create_brand(text, text),

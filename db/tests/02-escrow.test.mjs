@@ -70,7 +70,10 @@ dbTest('E4: a wire waits for the money, with a reference; the provider confirms 
   const id = await w.fund(deal, 'wire', 'next');
   const p = await pay(w, id);
   assert.equal(p.status, 'awaiting_wire');
-  assert.match(p.reference, /^GI-[0-9A-F]{6}-1-1$/);
+  assert.match(p.reference, /^GI-[0-9A-F]{12}$/);
+  assert.equal(p.reference, 'GI-' + id.replace(/-/g, '').slice(0, 12).toUpperCase(), 'made from the payment\'s own id');
+  const [{ unique }] = await w.db.q(`select exists (select 1 from pg_indexes where tablename = 'payments' and indexdef like '%UNIQUE%(reference)%') as unique`);
+  assert.equal(unique, true, 'no two payments share a reference');
   assert.equal((await w.milestones(deal))[0].status, 'awaiting_wire');
   assert.equal((await refusal(w.deliver(deal, 1))).rule, 'E6');
   assert.equal((await refusal(w.B.rpc('confirm_payment', { p_payment: id }))).code, '42501', 'only the backend confirms');
@@ -149,6 +152,35 @@ dbTest('payments that fail: the milestones go back to not funded, and the next p
   assert.equal((await w.money(d2)).status, 'in_progress');
   await w.B.rpc('simulate_payment', { p_payment: p2, p_outcome: 'failed' });
   assert.equal((await w.money(d2)).status, 'awaiting_funding');
+});
+
+dbTest('the payments provider can only change before any money has moved, so demo money never becomes real', async (w) => {
+  const deal = await w.deal();
+  await w.fund(deal, 'card', 'next');
+  let r = await refusal(w.db.q("update private.settings set value = 'stripe' where key = 'payments_provider'"));
+  assert.match(r.message, /before any money has moved/);
+  r = await refusal(w.db.q("update private.settings set value = 'paypal' where key = 'payments_provider'"));
+  assert.match(r.message, /settings_known|before any money/);
+  assert.deepEqual(await w.db.q("select value from private.settings where key = 'payments_provider'"), [{ value: 'simulated' }]);
+});
+
+dbTest('M2 after a failed payment: the next payment takes up the cent, so fees end at exactly 5% of what was funded', async (w) => {
+  for (const amount of [100001, 27, 53840, 999]) {
+    const items = [1, 2, 3, 4].map((i) => ({ label: 'D' + i }));
+    const deal = await w.deal({ amount, items });
+    const ms = await w.milestones(deal);
+    const fund = (m, method) => w.B.rpc('fund_milestones', { p_deal: deal, p_method: method, p_milestones: [m.id] });
+    const bank = await fund(ms[0], 'bank');
+    await fund(ms[1], 'card');
+    await w.db.service().rpc('fail_payment', { p_payment: bank });
+    await fund(ms[0], 'card');
+    await fund(ms[2], 'card');
+    await fund(ms[3], 'card');
+    const [s] = await w.db.q(`select sum(base_cents)::bigint as base, sum(fee_cents)::bigint as fee from public.payments
+                              where deal_id = $1 and status <> 'failed'`, [deal]);
+    assert.equal(s.base, amount);
+    assert.equal(s.fee, js.fee(amount), `fees on ${amount} after a failure`);
+  }
 });
 
 dbTest('with Stripe connected every payment waits for Stripe, and only the backend can clear it', async (w) => {

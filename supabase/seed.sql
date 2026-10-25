@@ -10,6 +10,10 @@
 -- rule (shares, fees, escrow) and the money audit at the end must come back empty. Dates in the past are then set to
 -- the prototype's (June to September 2026); open offers keep the prototype's time left to reply.
 
+-- The demo runs on simulated payments, as the prototype does: cards clear at once, bank payments and wires clear by
+-- hand. A real project stays on Stripe (the migrations' default) and never runs this seed
+update private.settings set value = 'simulated' where key = 'payments_provider';
+
 -- ---------------------------------------------------------------------------------------------------------------------
 -- People, brands, creators, packages (fixed ids, so links and tests can name them)
 -- ---------------------------------------------------------------------------------------------------------------------

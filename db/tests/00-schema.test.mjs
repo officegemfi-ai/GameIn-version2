@@ -17,6 +17,10 @@ const BACKEND = ['complete_payout', 'confirm_payment', 'expire_offers', 'fail_pa
 test('schema: row-level security, grants and arithmetic', async (t) => {
   const db = await freshDb();
   try {
+    await t.test('a real project starts on Stripe: nothing is funded for free until the demo seed says so', async () => {
+      assert.deepEqual(await db.q("select value from private.settings where key = 'payments_provider'"), [{ value: 'stripe' }]);
+    });
+
     await t.test('every table has row-level security on', async () => {
       const rows = await db.q(`select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
                                where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity`);
@@ -50,7 +54,7 @@ test('schema: row-level security, grants and arithmetic', async (t) => {
       const rows = await db.q(`select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                                where n.nspname = 'private' and has_function_privilege('authenticated', p.oid, 'execute') order by 1`);
       assert.deepEqual(rows.map((r) => r.proname), ['can_read_proof', 'can_upload_proof', 'deal_of_path', 'is_admin',
-        'is_brand_member', 'is_creator_owner', 'my_brand_ids', 'my_creator_ids', 'my_deal_ids', 'waiting_on']);
+        'is_brand_member', 'is_creator_owner', 'my_brand_ids', 'my_contact_ids', 'my_creator_ids', 'my_deal_ids', 'waiting_on']);
     });
 
     await t.test('every action runs as its owner with a fixed search path', async () => {
@@ -58,6 +62,13 @@ test('schema: row-level security, grants and arithmetic', async (t) => {
                                where n.nspname = 'public' and p.proname = any ($1)
                                  and not (p.prosecdef and array_to_string(p.proconfig, ',') like '%search_path=public, pg_temp%')`,
                               [[...ACTIONS, ...BACKEND]]);
+      assert.deepEqual(rows, []);
+    });
+
+    await t.test('every function has a fixed search path (Supabase\'s Security Advisor checks this)', async () => {
+      const rows = await db.q(`select n.nspname || '.' || p.proname as f from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                               where n.nspname in ('public', 'private')
+                                 and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c like 'search_path=%')`);
       assert.deepEqual(rows, []);
     });
 

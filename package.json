@@ -7,7 +7,7 @@
     "test:desktop": "playwright test --project=desktop",
     "test:phone": "playwright test --project=phone",
     "inventory": "INVENTORY=1 playwright test tests/inventory.spec.js",
-    "test:db": "node --test --test-concurrency=1 --test-reporter=spec db/tests/*.test.mjs"
+    "test:db": "node --test --test-concurrency=1 --test-timeout=180000 --test-reporter=spec db/tests/*.test.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.56.0",

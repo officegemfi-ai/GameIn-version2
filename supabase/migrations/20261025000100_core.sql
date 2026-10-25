@@ -33,6 +33,7 @@ create type public.payout_status as enum ('pending', 'paid', 'failed');
 -- deliverables as offers and packages carry them: [{"label": "Launch stream", "days": 5}, ...], 1 to 20 of them
 create function public.items_valid(p jsonb) returns boolean
 language sql immutable
+set search_path = ''
 as $$
   select coalesce(jsonb_typeof(p) = 'array', false)
      and jsonb_array_length(p) between 1 and 20
@@ -48,16 +49,19 @@ $$;
 -- 5% rounded half up: the brand fee on funding and the creator fee on releases
 create function public.five_percent(p_cents bigint) returns bigint
 language sql immutable strict parallel safe
+set search_path = ''
 as $$ select (p_cents + 10) / 20 $$;
 
 -- fees are 5% of a deal's running total, rounded once: the fee on a new amount is what it adds to the rounded total
 create function public.fee_step(p_before bigint, p_amount bigint) returns bigint
 language sql immutable strict parallel safe
+set search_path = ''
 as $$ select public.five_percent(p_before + p_amount) - public.five_percent(p_before) $$;
 
 -- an amount split into equal parts rounded down to the cent; the last part takes what's left
 create function public.split_cents(p_total bigint, p_parts integer) returns bigint[]
 language sql immutable strict parallel safe
+set search_path = ''
 as $$
   select array_agg(case when i < p_parts then p_total / p_parts else p_total - (p_total / p_parts) * (p_parts - 1) end order by i)
   from generate_series(1, p_parts) as i
@@ -66,17 +70,21 @@ $$;
 -- an instant payout costs 1.5%, rounded half up
 create function public.instant_payout_fee(p_cents bigint) returns bigint
 language sql immutable strict parallel safe
+set search_path = ''
 as $$ select (p_cents * 3 + 100) / 200 $$;
 
 -- ---------------------------------------------------------------------------------------------------------------------
 -- Accounts
 -- ---------------------------------------------------------------------------------------------------------------------
 -- one row per signed-up person (Supabase Auth's auth.users); made by a trigger at sign-up
+-- (no foreign key to auth.users: deals, payments and messages point at profiles and must outlive a deleted account, so
+-- deleting an account empties its profile instead of removing it; see handle_deleted_user below)
 create table public.profiles (
-  id uuid primary key references auth.users (id) on delete cascade,
+  id uuid primary key,
   display_name text not null default '',
   avatar_url text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  deleted_at timestamptz
 );
 
 -- a creator's public profile. One person owns it; creator teams can come later as creator_members
@@ -207,6 +215,7 @@ create table public.offer_versions (
 -- the sides take turns: a version follows the last one, by the other side
 create function public.offer_versions_take_turns() returns trigger
 language plpgsql
+set search_path = ''
 as $$
 declare prev public.side;
 begin
@@ -307,6 +316,7 @@ create index deliverables_milestone_idx on public.deliverables (milestone_id);
 -- a milestone's deliverables share exactly its amount, to the cent (checked when the transaction commits)
 create function public.check_milestone_shares() returns trigger
 language plpgsql
+set search_path = ''
 as $$
 declare mid uuid; amt bigint; shares bigint;
 begin
@@ -346,16 +356,20 @@ create table public.payments (
   base_cents bigint not null check (base_cents > 0),
   fee_cents bigint not null check (fee_cents >= 0),
   fee_basis_cents bigint not null default 0 check (fee_basis_cents >= 0),  -- what the deal had funded before this payment
+  fees_before_cents bigint not null default 0 check (fees_before_cents >= 0),  -- and the fees charged on it
   total_cents bigint not null,
-  reference text not null,
-  provider text not null default 'simulated',              -- 'simulated' until Stripe is connected
+  reference text not null unique,                          -- what a wire must quote; made from the payment's id
+  provider text not null check (provider in ('simulated', 'stripe')),
   provider_ref text,
   created_by uuid references public.profiles (id),
   created_at timestamptz not null default now(),
   succeeded_at timestamptz,
   failed_at timestamptz,
   constraint payments_total check (total_cents = base_cents + fee_cents),
-  constraint payments_fee_on_running_total check (fee_cents = public.fee_step(fee_basis_cents, base_cents)),
+  -- the fee brings the deal's fees to 5% of everything funded, rounded once: normally the step the new amount adds to the
+  -- rounded total; after a payment failed it also takes up any cent the earlier fees were off by
+  constraint payments_fee_on_running_total
+    check (fee_cents = greatest(0, public.five_percent(fee_basis_cents + base_cents) - fees_before_cents)),
   constraint payments_succeeded_dated check ((status = 'succeeded') = (succeeded_at is not null)),
   constraint payments_failed_dated check ((status = 'failed') = (failed_at is not null)),
   unique (deal_id, seq)
@@ -384,6 +398,7 @@ create table public.proofs (
   note text not null default '',
   submitted_by uuid not null references public.profiles (id),
   submitted_at timestamptz not null default now(),
+  review_started_at timestamptz not null default now(),    -- the 5-day auto-approval counts from here; an undo restarts it
   approved_by uuid references public.profiles (id),
   approved_at timestamptz,
   release_at timestamptz,                                  -- while releasing: when the undo window ends
@@ -424,7 +439,7 @@ create table public.payouts (
   fee_cents bigint not null default 0 check (fee_cents >= 0),
   net_cents bigint not null,                                  -- what reaches the bank
   status public.payout_status not null default 'pending',
-  provider text not null default 'simulated',
+  provider text not null check (provider in ('simulated', 'stripe')),
   provider_ref text,
   created_by uuid references public.profiles (id),
   created_at timestamptz not null default now(),
@@ -460,6 +475,7 @@ create index ledger_entries_txn_idx on public.ledger_entries (txn_id);
 
 create function public.ledger_txn_balanced() returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   if (select coalesce(sum(e.amount_cents), 0) from public.ledger_entries e where e.txn_id = new.txn_id) <> 0 then
@@ -473,6 +489,7 @@ create constraint trigger ledger_txn_balanced after insert on public.ledger_entr
 
 create function public.ledger_append_only() returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   raise exception 'Ledger entries are never changed or deleted; post a correcting transaction instead';
@@ -480,6 +497,8 @@ end
 $$;
 create trigger ledger_append_only before update or delete on public.ledger_entries
   for each row execute function public.ledger_append_only();
+create trigger ledger_no_truncate before truncate on public.ledger_entries
+  for each statement execute function public.ledger_append_only();
 
 -- ---------------------------------------------------------------------------------------------------------------------
 -- Renewals and ratings
@@ -526,6 +545,7 @@ create table public.conversations (
   creator_id uuid not null references public.creators (id),
   created_at timestamptz not null default now(),
   last_message_at timestamptz,
+  last_message_seq bigint not null default 0,
   unique (brand_id, creator_id)
 );
 
@@ -535,13 +555,15 @@ create table public.messages (
   sender_side public.side not null,
   sender_id uuid not null references public.profiles (id),
   body text not null check (length(trim(body)) between 1 and 4000),
-  created_at timestamptz not null default clock_timestamp()
+  seq bigint not null check (seq >= 1),                    -- the thread's messages in the order they were saved
+  created_at timestamptz not null default clock_timestamp(),
+  unique (conversation_id, seq)
 );
-create index messages_conversation_idx on public.messages (conversation_id, created_at);
 
 create table public.conversation_reads (
   conversation_id uuid not null references public.conversations (id) on delete cascade,
   side public.side not null,
+  last_read_seq bigint not null default 0,                 -- that side has seen every message up to this one
   last_read_at timestamptz not null default now(),
   primary key (conversation_id, side)
 );
@@ -584,10 +606,32 @@ language plpgsql security definer set search_path = public, pg_temp
 as $$
 begin
   insert into public.profiles (id, display_name)
-  values (new.id, coalesce(new.raw_user_meta_data ->> 'name', split_part(coalesce(new.email, ''), '@', 1), ''))
+  values (new.id, left(coalesce(trim(new.raw_user_meta_data ->> 'name'), ''), 80))
   on conflict (id) do nothing;
   return new;
 end
 $$;
 create trigger on_auth_user_created after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- A deleted account: its deals, payments and messages stay (the other side's records and the books need them), but
+-- what identified the person goes: the profile is emptied, they leave their brands, their notifications go, and their
+-- creator profile is anonymised with its packages taken off sale
+create function public.handle_deleted_user() returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  update public.profiles set display_name = '', avatar_url = null, deleted_at = now() where id = old.id;
+  delete from public.brand_members where user_id = old.id;
+  delete from public.notifications where user_id = old.id;
+  update public.packages set active = false
+   where creator_id in (select c.id from public.creators c where c.owner_id = old.id);
+  update public.creators
+     set handle = 'deleted-' || left(replace(id::text, '-', ''), 12), display_name = 'Deleted creator', bio = '',
+         avatar_url = null, platforms = '[]'::jsonb
+   where owner_id = old.id;
+  return old;
+end
+$$;
+create trigger on_auth_user_deleted after delete on auth.users
+  for each row execute function public.handle_deleted_user();

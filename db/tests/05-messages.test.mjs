@@ -11,7 +11,7 @@ dbTest('C1: a message reaches the other side, unread until opened, then seen', a
   assert.deepEqual(await w.B.query("select * from public.todos where side = 'brand'"), [], 'your own message isn\'t unread for you');
   assert.deepEqual((await w.C.query('select kind from public.notifications')).map((n) => n.kind), ['message']);
   // the brand sees "seen" once the creator has read past the message
-  const seen = () => w.B.query(`select r.last_read_at >= m.created_at as seen from public.messages m
+  const seen = () => w.B.query(`select r.last_read_seq >= m.seq as seen from public.messages m
                                  join public.conversation_reads r on r.conversation_id = m.conversation_id and r.side = 'creator'`);
   assert.deepEqual(await seen(), []);
   await w.C.rpc('mark_read', { p_conversation: conv.id, p_as: 'creator' });
@@ -50,6 +50,36 @@ dbTest('C2: offer, deal, funding, proof and payout events appear in the shared c
   assert.equal(line.data.net, 11000 - 550);
   assert.deepEqual(await w.X.query('select * from public.conversation_timeline'), []);
 });
+
+dbTest('C1: a message still being sent when the other side opens the thread stays unread, and isn\'t "seen"', async (w) => {
+  await w.B.rpc('send_message', { p_brand: w.brand, p_creator: w.creator, p_as: 'brand', p_body: 'first' });
+  const [conv] = await w.C.query('select id from public.conversations');
+  const sending = await w.B.hold();
+  await sending.rpc('send_message', { p_brand: w.brand, p_creator: w.creator, p_as: 'brand', p_body: 'second' });
+  assert.equal(await w.C.rpc('mark_read', { p_conversation: conv.id, p_as: 'creator' }), 1, 'the creator saw message 1');
+  await sending.commit();
+  assert.deepEqual((await w.C.query("select kind from public.todos where side = 'creator'")).map((t) => t.kind), ['unread_messages']);
+  const seen = await w.B.query(`select m.body, r.last_read_seq >= m.seq as seen from public.messages m
+                                join public.conversation_reads r on r.conversation_id = m.conversation_id and r.side = 'creator' order by m.seq`);
+  assert.deepEqual(seen, [{ body: 'first', seen: true }, { body: 'second', seen: false }]);
+  // the app can mark read only what it showed
+  assert.equal(await w.C.rpc('mark_read', { p_conversation: conv.id, p_as: 'creator', p_upto_seq: 99 }), 2);
+});
+
+dbTest('C2: the seeded deals\' history shows in their conversations, and later moves join it', async (w) => {
+  const [conv] = await w.demo.query('select id from public.conversations where brand_id = $1 and creator_id = $2', [DEMO.hypercore, DEMO.shock]);
+  assert.ok(conv, 'HYPERCORE and Instant Shock have a conversation');
+  const before = await w.demo.query("select kind from public.conversation_timeline where conversation_id = $1 and kind = 'payment_released'", [conv.id]);
+  assert.equal(before.length, 8, 'June\'s six releases and July\'s two');
+  const proof = (await w.db.one("select id from public.proofs where status = 'in_review'")).id;
+  await w.demo.rpc('approve_proof', { p_proof: proof, p_undo_seconds: 0 });
+  const after = await w.demo.query("select kind from public.conversation_timeline where conversation_id = $1 and kind = 'payment_released'", [conv.id]);
+  assert.equal(after.length, 9);
+  for (const deal of [DEMO.sp2, DEMO.sp3, DEMO.bx2]) {
+    const [d] = await w.db.q('select brand_id, creator_id from public.deals where id = $1', [deal]);
+    assert.equal((await w.db.q('select count(*)::int as n from public.conversations where brand_id = $1 and creator_id = $2', [d.brand_id, d.creator_id]))[0].n, 1);
+  }
+}, { seed: true });
 
 dbTest('notifications go to the other side and can be marked read', async (w) => {
   const offer = await w.offer();

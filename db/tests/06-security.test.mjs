@@ -185,3 +185,61 @@ dbTest('the checks behind the functions: impossible states are refused by the ta
     assert.match((await refusal(w.db.q(sql, params))).message, why, sql);
   }
 });
+
+dbTest('the service key reads, but changes nothing directly: no inserts, updates, deletes or truncation', async (w) => {
+  const deal = await w.deal();
+  await w.fund(deal);
+  const svc = w.db.service();
+  assert.ok((await svc.query('select count(*)::int as n from public.ledger_entries'))[0].n > 0, 'it can read');
+  for (const sql of [
+    'truncate public.ledger_entries',
+    'delete from public.ledger_entries',
+    "update public.payments set status = 'failed'",
+    "insert into public.payouts (creator_id, amount_cents, net_cents, provider) values ('" + w.creator + "', 1, 1, 'stripe')",
+    'truncate public.payments cascade',
+  ]) {
+    assert.equal((await refusal(svc.query(sql))).code, '42501', sql);
+  }
+  // and the ledger can't be truncated even by the database owner
+  assert.match((await refusal(w.db.q('truncate public.ledger_entries'))).message, /never changed or deleted/);
+});
+
+dbTest('profile names are visible to the people you deal with, not to every signed-in user; e-mails never become names', async (w) => {
+  await w.deal();
+  const names = async (actor) => (await actor.query('select display_name from public.profiles order by display_name')).map((p) => p.display_name);
+  assert.deepEqual(await names(w.X), ['Outsider'], 'an outsider sees only themselves');
+  assert.deepEqual(await names(w.B), ['Instant Shock', 'VOLTEDGE manager'], 'the brand sees the creator it deals with');
+  assert.deepEqual(await names(w.C), ['Instant Shock', 'VOLTEDGE manager']);
+  // a teammate is visible to the team
+  const mate = await w.db.user('Second manager');
+  await w.db.q("insert into public.brand_members (brand_id, user_id) values ($1, $2)", [w.brand, mate.id]);
+  assert.ok((await names(w.B)).includes('Second manager'));
+  // sign-up without a name: no name, never the part of the e-mail before the @
+  const id = '0f000000-0000-4000-8000-000000000001';
+  await w.db.q("insert into auth.users (id, email, aud, role) values ($1, 'john.q.public@example.com', 'authenticated', 'authenticated')", [id]);
+  assert.equal((await w.db.one('select display_name from public.profiles where id = $1', [id])).display_name, '');
+});
+
+dbTest('visitors see a creator\'s public profile, not which account owns it', async (w) => {
+  const anon = w.db.anon();
+  const rows = await anon.query('select handle, display_name, bio from public.creators order by handle');
+  assert.equal(rows.length, 2);
+  assert.equal((await refusal(anon.query('select owner_id from public.creators'))).code, '42501');
+});
+
+dbTest('deleting an account keeps the books and removes the person: profile emptied, brands left, creator anonymised', async (w) => {
+  const deal = await w.deal({ amount: 30000 });
+  await w.fund(deal);
+  await w.completeAll(deal);
+  await w.C.query(`insert into public.packages (creator_id, title, price_cents, items) values ($1, 'PKG', 5000, '[{"label": "x"}]')`, [w.creator]);
+  await w.db.q('delete from auth.users where id = $1', [w.C.id]);
+  await w.db.q('delete from auth.users where id = $1', [w.B.id]);
+  const [p] = await w.db.q('select display_name, deleted_at is not null as gone from public.profiles where id = $1', [w.C.id]);
+  assert.deepEqual(p, { display_name: '', gone: true });
+  const [c] = await w.db.q('select handle, display_name, bio from public.creators where id = $1', [w.creator]);
+  assert.match(c.handle, /^deleted-[0-9a-f]{12}$/);
+  assert.equal(c.display_name, 'Deleted creator');
+  assert.equal((await w.db.q('select count(*)::int as n from public.packages where creator_id = $1 and active', [w.creator]))[0].n, 0);
+  assert.equal((await w.db.q('select count(*)::int as n from public.brand_members where user_id = $1', [w.B.id]))[0].n, 0);
+  assert.equal((await w.db.q('select count(*)::int as n from public.releases where deal_id = $1', [deal]))[0].n, 3, 'the books stay');
+});
