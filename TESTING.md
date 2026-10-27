@@ -67,8 +67,20 @@ When both tabs change the same thing at once, the merge settles it before anythi
 
 `tests/10-usertest.spec.js` walks the usability test mode the way a participant does, for both task sets, so the script handed to testers is known to work: each task's other-side move is prepared, completion is detected, and the session ends in the moderator panel.
 
+## The database (Supabase)
+
+`supabase/` holds the real database for GameIn: the same rules, enforced by Postgres instead of the browser. Every move is a database function that runs as one locked transaction, so two people on two devices take turns instead of merging afterwards. `supabase/README.md` says how to put it on a Supabase project, run it locally with the demo data, and call it from the app.
+
+`npm run test:db` builds a fresh database from the migrations for every test (set `DATABASE_URL` to a Postgres server), acts as real users through row-level security, and ends every test with the money audit, `private.audit_money()`, which must find nothing. The tests in `db/tests/` cover every rule with a database side, from both seats and every blocked move, plus:
+
+- races: two connections acting at the same instant, lined up exactly (one holds its locks while the other is seen waiting): two approvals, two releases and the scheduler, undo against release, two fundings of one milestone, accept against withdraw, a renewal answered twice, a bank clearing against a failure, two payouts of the whole balance, and dozens of connections at once;
+- random walks: hundreds of random moves from both seats, many deliberately wrong, with the audit after every move and every refusal checked to be a clean one;
+- the demo seed against the prototype's starting numbers, to the cent.
+
+GitHub runs them on every push and pull request (`.github/workflows/database.yml`) on Postgres 15 and 17, and on Supabase's own Postgres after loading the migrations and the seed with the Supabase CLI.
+
 ## What isn't covered
 
 The prototype has no server: data lives in the browser's local storage, so "both sides" means two seats or two tabs in one browser, not two people on two devices. Payments, bank clearing and wires are simulated (`clears (demo)`, `received (demo)`).
 
-Without a server, two tabs can only be reconciled after the fact. If both tabs make several money moves on the same deal while neither can see the other (possible only while the browser holds one tab's updates back), one side's moves stand when the tabs meet and the other side's are undone, a payout made on that side included. The rules above keep the money consistent through that; a server, where each payment and release is one transaction, prevents it.
+Without a server, two tabs can only be reconciled after the fact. If both tabs make several money moves on the same deal while neither can see the other (possible only while the browser holds one tab's updates back), one side's moves stand when the tabs meet and the other side's are undone, a payout made on that side included. The rules above keep the money consistent through that; a server, where each payment and release is one transaction, prevents it. That server is the Supabase database in `supabase/`; the prototype doesn't use it yet.
