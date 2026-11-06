@@ -50,7 +50,8 @@ password `gamein-demo`:
 
 ## From the app
 
-The app reads tables and views directly and makes every change through a function. Row-level security decides what
+The app's live mode (`?live`) is built this way: see `live/README.md`. The app reads tables and views directly and
+makes every change through a function. Row-level security decides what
 each person sees; the functions decide what each person can do.
 
 ```js
