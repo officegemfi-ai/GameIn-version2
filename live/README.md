@@ -21,7 +21,7 @@ URL and publishable key. Both are public by design: row-level security protects 
 - **`boot.js`** runs first and decides the mode. In live mode it does four things:
   - keeps the demo's saved state in memory, so nothing from an earlier demo visit leaks in;
   - gives the app an empty shared store;
-  - loads Supabase's client (`vendor/supabase-js-2.119.0.js`), then the data layer, then the adapter;
+  - loads Supabase's client (`live/vendor/supabase-js-2.119.0.js`, with its MIT license), then the data layer, then the adapter;
   - holds website buttons pressed before the adapter is ready, and presses them again once it is.
 - **`gamein-live.js`** is the data layer:
   - signing in, signing up and password resets;
@@ -29,7 +29,10 @@ URL and publishable key. Both are public by design: row-level security protects 
   - moves, as database functions;
   - proof uploads to Storage, and links to proof files that expire after an hour;
   - following the database. It listens through Realtime. If Realtime can't connect, it checks every 5 seconds. It
-    also catches up as soon as the page is back in view, for example a phone waking up.
+    also catches up as soon as the page is back in view, for example a phone waking up. As a safety net, every 15
+    seconds it reads the account's newest notification (every move by the other side leaves one) and reloads if
+    Realtime missed it. A load that hangs is given up after 20 seconds. `GIX.live.status()` shows what the connection
+    has been doing.
 - **`gamein-adapter.js`** connects the app's screens to the database:
   - it turns each snapshot into the records the screens already use (the demo's own shapes);
   - it turns each of the app's moves into the database function for it. When the database refuses a move, the

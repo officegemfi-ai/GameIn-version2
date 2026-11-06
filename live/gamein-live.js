@@ -1,7 +1,7 @@
 /* GameIn live mode: the data layer between the screens and the Supabase database.
  *
  * Configure with window.GAMEIN_SUPABASE = { url, anonKey } (live/config.js) and load supabase-js first
- * (vendor/supabase-js-*.js). Without a config the page stays the in-browser demo.
+ * (live/vendor/supabase-js-*.js). Without a config the page stays the in-browser demo.
  *
  *   GameInLive.signIn(email, password) / signUp({...}) / signOut()
  *   GameInLive.load()          everything the signed-in person may see, in one snapshot (row-level security decides)
@@ -115,50 +115,62 @@
       return data && data.session ? data.session.user : null;
     }
 
-    // everything the signed-in person may see, at one moment
+    // what the connection has been doing, for support and the tests: loads, Realtime's state and events, and what the
+    // safety net caught that Realtime missed
+    const stats = { loads: 0, failedLoads: 0, events: 0, caught: 0, lastLoad: 0, lastEvent: 0, realtime: 'off' };
+
+    // everything the signed-in person may see, at one moment. A load that hangs is given up after LOAD_TIMEOUT_MS, so
+    // a dead connection can't leave the screen stuck on an old snapshot (the next change or check loads again)
+    const LOAD_TIMEOUT_MS = config.loadTimeoutMs || 20000;
     async function fetchWorld() {
       const me = await user();
       if (!me) return null;
-      const q = (t, sel = '*') => sb.from(t).select(sel);
-      const [seats, profiles, creators, brands, packages, campaigns, offers, versions, deals, periods, milestones,
-        deliverables, proofs, releases, payments, paymentMilestones, payouts, renewals, ratings, dealMoney, brandMoney,
-        wallet, walletLines, todos, conversations, messages, reads, events, notifications] = await Promise.all([
-        rows(q('my_seats')),
-        rows(q('profiles')),
-        rows(q('creators')),
-        rows(q('brands')),
-        rows(q('packages')),
-        rows(q('campaigns')),
-        rows(q('offer_board').order('created_at', { ascending: false })),
-        rows(q('offer_versions').order('version')),
-        rows(q('deals').order('created_at', { ascending: false })),
-        rows(q('deal_periods').order('seq')),
-        rows(q('milestones').order('seq')),
-        rows(q('deliverables').order('seq')),
-        rows(q('proofs').order('submitted_at')),
-        rows(q('releases').order('released_at')),
-        rows(q('payments').order('seq')),
-        rows(q('payment_milestones')),
-        rows(q('payouts').order('created_at')),
-        rows(q('renewals').order('created_at')),
-        rows(q('ratings')),
-        rows(q('deal_money')),
-        rows(q('brand_money')),
-        rows(q('creator_wallet')),
-        rows(q('wallet_lines').order('at')),
-        rows(q('todos')),
-        rows(q('conversations')),
-        rows(q('messages').order('seq')),
-        rows(q('conversation_reads')),
-        rows(q('events').order('id')),
-        rows(q('notifications').order('id', { ascending: false }).limit(200)),
-      ]);
-      return {
-        at: Date.now(), me: { id: me.id, email: me.email }, seats, profiles, creators, brands, packages, campaigns, offers,
-        versions, deals, periods, milestones, deliverables, proofs, releases, payments, paymentMilestones, payouts,
-        renewals, ratings, dealMoney, brandMoney, wallet, walletLines, todos, conversations, messages, reads, events,
-        notifications,
-      };
+      const stop = new AbortController();
+      const timer = setTimeout(() => stop.abort(), LOAD_TIMEOUT_MS);
+      const q = (t, sel = '*') => sb.from(t).select(sel).abortSignal(stop.signal);
+      try {
+        const [seats, profiles, creators, brands, packages, campaigns, offers, versions, deals, periods, milestones,
+          deliverables, proofs, releases, payments, paymentMilestones, payouts, renewals, ratings, dealMoney, brandMoney,
+          wallet, walletLines, todos, conversations, messages, reads, events, notifications] = await Promise.all([
+          rows(q('my_seats')),
+          rows(q('profiles')),
+          rows(q('creators')),
+          rows(q('brands')),
+          rows(q('packages')),
+          rows(q('campaigns')),
+          rows(q('offer_board').order('created_at', { ascending: false })),
+          rows(q('offer_versions').order('version')),
+          rows(q('deals').order('created_at', { ascending: false })),
+          rows(q('deal_periods').order('seq')),
+          rows(q('milestones').order('seq')),
+          rows(q('deliverables').order('seq')),
+          rows(q('proofs').order('submitted_at')),
+          rows(q('releases').order('released_at')),
+          rows(q('payments').order('seq')),
+          rows(q('payment_milestones')),
+          rows(q('payouts').order('created_at')),
+          rows(q('renewals').order('created_at')),
+          rows(q('ratings')),
+          rows(q('deal_money')),
+          rows(q('brand_money')),
+          rows(q('creator_wallet')),
+          rows(q('wallet_lines').order('at')),
+          rows(q('todos')),
+          rows(q('conversations')),
+          rows(q('messages').order('seq')),
+          rows(q('conversation_reads')),
+          rows(q('events').order('id')),
+          rows(q('notifications').order('id', { ascending: false }).limit(200)),
+        ]);
+        return {
+          at: Date.now(), me: { id: me.id, email: me.email }, seats, profiles, creators, brands, packages, campaigns, offers,
+          versions, deals, periods, milestones, deliverables, proofs, releases, payments, paymentMilestones, payouts,
+          renewals, ratings, dealMoney, brandMoney, wallet, walletLines, todos, conversations, messages, reads, events,
+          notifications,
+        };
+      } finally {
+        clearTimeout(timer);
+      }
     }
 
     // one load at a time; a load asked for while one runs starts again when it ends, so the snapshot is never stale
@@ -174,8 +186,13 @@
             run.again = false;
             world = await fetchWorld();
           } while (run.again);
+          stats.loads++;
+          stats.lastLoad = Date.now();
           notify();
           return world;
+        } catch (e) {
+          stats.failedLoads++;
+          throw e;
         } finally {
           loading = null;
         }
@@ -223,13 +240,33 @@
       clearInterval(poll);
       poll = null;
     }
+    // A safety net under Realtime. Every CHECK_MS, while the page is in view, one small read asks for this account's
+    // newest notification. Every move by the other side leaves one, so a newer one than the snapshot holds means
+    // Realtime missed something: everything reloads.
+    const CHECK_MS = config.checkMs || 15000;
+    let check = null;
+    async function checkForNews() {
+      if (poll || loading || !world || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) return;
+      const { data, error } = await sb.from('notifications').select('id').order('id', { ascending: false }).limit(1);
+      if (error || loading || !world) return;
+      const newest = data && data[0] ? data[0].id : 0;
+      const shown = world.notifications && world.notifications[0] ? world.notifications[0].id : 0;
+      if (newest > shown) {
+        stats.caught++;
+        load().catch(() => {});
+      }
+    }
+
     function watch() {
+      if (!check) check = setInterval(() => checkForNews().catch(() => {}), CHECK_MS);
       if (channel) return;
       channel = sb.channel('gamein-live');
       TABLES_WATCHED.forEach((table) => {
         channel.on('postgres_changes', { event: '*', schema: 'public', table }, () => {
+          stats.events++;
+          stats.lastEvent = Date.now();
           clearTimeout(reloadTimer);
-          reloadTimer = setTimeout(load, 150);
+          reloadTimer = setTimeout(() => load().catch(() => {}), 150);
         });
       });
       const fallback = setTimeout(startPolling, config.realtimeWaitMs || 5000);
@@ -241,6 +278,7 @@
         });
       }
       channel.subscribe((status) => {
+        stats.realtime = status;
         if (status === 'SUBSCRIBED') {
           clearTimeout(fallback);
           stopPolling();
@@ -255,7 +293,11 @@
       if (channel) sb.removeChannel(channel);
       channel = null;
       stopPolling();
+      clearInterval(check);
+      check = null;
     }
+
+    const status = () => ({ ...stats, polling: !!poll, loading: !!loading, snapshotAt: world ? world.at : 0, now: Date.now() });
 
     function on(f) {
       subs.add(f);
@@ -274,7 +316,7 @@
 
     return {
       client: sb, signIn, signUp, verifySignupCode, finishSetup, resetPassword, setPassword, signOut, user, onAuth,
-      load, act, submitProof, proofFileUrl, watch, unwatch, on, world: () => world, refusal,
+      load, act, submitProof, proofFileUrl, watch, unwatch, on, world: () => world, refusal, status, checkNow: checkForNews,
     };
   }
 

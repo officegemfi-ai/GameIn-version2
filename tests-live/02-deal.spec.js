@@ -2,7 +2,7 @@
 // sends an offer, the creator accepts it, the brand funds escrow, the creator delivers proof, the brand approves, and
 // the money reaches the creator's wallet less the 5% fee. Every step is a database function; each side sees the
 // other's moves without reloading.
-const { test, expect, signIn, signUp, tag, go, brandTab, until, noErrors, settle } = require('./support/live');
+const { test, expect, liveStatus, signIn, signUp, tag, go, brandTab, until, noErrors, settle } = require('./support/live');
 
 // proof files need Supabase Storage: the CLI's stack has it (GAMEIN_LIVE_STORAGE=1 in CI)
 const STORAGE = !!process.env.GAMEIN_LIVE_STORAGE;
@@ -101,6 +101,7 @@ test('offer, escrow, proof and payout between a new brand and a new creator', as
   const say = creator.locator('#gamein-root textarea[aria-label^="Message "]').filter({ visible: true });
   await say.fill('Stream is booked for Friday');
   await say.press('Enter');
+  await until(creator, () => GIX.live.world().messages.some((m) => m.body === 'Stream is booked for Friday')); // saved
   await until(brand, (n) => GIX.bxThreads(GIX.bxCurBrand()).some((th) => th.who === n && th.msgs.some((m) => m[1] === 'Stream is booked for Friday')), creatorName);
   await brandTab(brand, 'messages');
   await brand.locator('#gamein-root').getByText(creatorName).filter({ visible: true }).first().click();
@@ -110,6 +111,12 @@ test('offer, escrow, proof and payout between a new brand and a new creator', as
   await reply.press('Enter');
   await expect(creator.locator('#gamein-root')).toContainText('Great, see you then', { timeout: 20000 });
 
+  // how each side heard about the other's moves: Realtime, and anything the safety net had to catch
+  for (const [who, page] of [['creator', creator], ['brand', brand]]) {
+    const st = await liveStatus(page);
+    testInfo.annotations.push({ type: 'live ' + who, description: JSON.stringify(st) });
+    console.log('[live] ' + who + ': ' + JSON.stringify(st));
+  }
   noErrors(creator);
   noErrors(brand);
 });

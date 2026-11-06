@@ -102,6 +102,9 @@ uses it the way people will. Every person is a real account in a browser of thei
   - a creator opens a brand of their own;
   - an account that doesn't load after signing in is told so and can try again;
   - a website button pressed while the page is still starting opens the live sign-in, not the demo's.
+- `04-safety`: tags in someone's name show as text in Glint's messages, and never run.
+- `05-following`: with a brand's live feed switched off, the safety net still brings in a message from the other
+  side.
 
 ```bash
 npx supabase start     # needs Docker; loads supabase/migrations and supabase/seed.sql
@@ -109,7 +112,8 @@ GAMEIN_LIVE_API=http://127.0.0.1:54321 GAMEIN_LIVE_ANON=<ANON_KEY from npx supab
   GAMEIN_LIVE_STORAGE=1 npm run test:live
 ```
 
-Each run signs up new accounts, so the tests can run again without resetting the database. They never touch the
+Each run signs up new accounts, so the tests can run again without resetting the database. When a wait for the other
+side runs out, the log shows what that page's connection was doing (`GIX.live.status()`) and what the browser logged. They never touch the
 hosted project: the app is pointed at the stack the tests are given. GitHub runs them on every push and pull request
 (`.github/workflows/live.yml`) on the Supabase CLI's stack, Realtime and Storage included, with a desktop job and a
 phone job side by side.

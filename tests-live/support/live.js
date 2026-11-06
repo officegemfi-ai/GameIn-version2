@@ -43,7 +43,13 @@ async function browserFor(browser, testInfo) {
   }, [API, ANON]);
   const page = await ctx.newPage();
   page.__errors = [];
+  page.__console = [];
   page.on('pageerror', (e) => page.__errors.push(String((e && e.message) || e)));
+  page.on('console', (m) => {
+    if (m.type() !== 'error' && m.type() !== 'warning') return;
+    page.__console.push(new Date().toISOString().slice(11, 23) + ' ' + m.type() + ': ' + m.text().slice(0, 300));
+    if (page.__console.length > 40) page.__console.shift();
+  });
   await page.goto(PAGE);
   await page.waitForFunction(() => window.GAMEIN_MODE === 'live' && window.GIX && GIX.ready && document.querySelector('#gi-market-site [data-gi-action="demo"]'), null, { timeout: 30000 });
   return page;
@@ -103,8 +109,20 @@ async function brandTiles(page) {
     return o;
   });
 }
-// wait until the other person's move shows up here (the app follows the database by itself)
-const until = (page, fn, arg, timeout = 20000) => page.waitForFunction(fn, arg, { timeout, polling: 250 });
+// what the page's connection to the database has been doing (loads, Realtime, the safety net)
+const liveStatus = (page) => page.evaluate(() => (window.GIX && GIX.live && GIX.live.status ? GIX.live.status() : null)).catch(() => null);
+
+// wait until the other person's move shows up here (the app follows the database by itself). If it doesn't, say what
+// the page's connection was doing and what the browser logged, so a failure on GitHub can be read from the log alone
+async function until(page, fn, arg, timeout = 20000) {
+  try {
+    return await page.waitForFunction(fn, arg, { timeout, polling: 250 });
+  } catch (e) {
+    console.log('[live] the wait ran out. Connection: ' + JSON.stringify(await liveStatus(page)));
+    console.log('[live] the browser logged:\n  ' + (page.__console || []).join('\n  '));
+    throw e;
+  }
+}
 const noErrors = (page) => expect(page.__errors || [], 'no JavaScript errors on the page').toEqual([]);
 
-module.exports = { test, expect, open: browserFor, inside, signIn, signUp, tag, go, brandTab, brandTiles, until, noErrors, settle, esc };
+module.exports = { test, expect, liveStatus, open: browserFor, inside, signIn, signUp, tag, go, brandTab, brandTiles, until, noErrors, settle, esc };

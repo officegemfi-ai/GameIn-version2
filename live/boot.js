@@ -77,7 +77,7 @@
   }, true);
   // the live scripts, in order: Supabase's client, the data layer, the adapter (they need nothing from the demo)
   var base = (document.currentScript && document.currentScript.src) || location.href;
-  ['../vendor/supabase-js-2.119.0.js', 'gamein-live.js', 'gamein-adapter.js'].forEach(function (p) {
+  ['vendor/supabase-js-2.119.0.js', 'gamein-live.js', 'gamein-adapter.js'].forEach(function (p) {
     var s = document.createElement('script');
     s.src = new URL(p, base).href;
     s.async = false;
