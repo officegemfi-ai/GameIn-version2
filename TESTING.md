@@ -79,8 +79,43 @@ When both tabs change the same thing at once, the merge settles it before anythi
 
 GitHub runs them on every push and pull request (`.github/workflows/database.yml`) on Postgres 15 and 17, and on Supabase's own Postgres after loading the migrations and the seed with the Supabase CLI.
 
+## The live app (`?live`)
+
+`tests-live/` opens the app in live mode against a real Supabase stack, with the migrations and the demo seed, and
+uses it the way people will. Every person is a real account in a browser of their own, on a desktop and a phone:
+
+- `01-seats`: the demo account sees its creator deals, offers and wallet, and its six brands' money, all from the
+  database. A brand manager lands in the brand view and sees only HYPERCORE: row-level security keeps every other
+  brand's offers, deals and payments out of the browser.
+- `02-deal`: a new brand and a new creator, both signed up through the website, make a whole deal:
+  - the brand sends an offer and the creator accepts it from their inbox;
+  - the brand funds escrow by card: $300 plus the 5% fee, $315.00;
+  - the creator sends proof. It's a link, plus a file where Storage is available. The brand opens the file through
+    a link that expires, and another account can't open it at all;
+  - the brand approves, and the release puts $142.50 in the creator's wallet;
+  - the two sides message each other.
+
+  Each side sees the other's moves without reloading.
+- `03-accounts`:
+  - a wrong password is turned away;
+  - signing out (the LIVE badge's menu on a computer, More on a phone) leaves the browser signed out;
+  - a creator opens a brand of their own;
+  - an account that doesn't load after signing in is told so and can try again;
+  - a website button pressed while the page is still starting opens the live sign-in, not the demo's.
+
+```bash
+npx supabase start     # needs Docker; loads supabase/migrations and supabase/seed.sql
+GAMEIN_LIVE_API=http://127.0.0.1:54321 GAMEIN_LIVE_ANON=<ANON_KEY from npx supabase status -o env> \
+  GAMEIN_LIVE_STORAGE=1 npm run test:live
+```
+
+Each run signs up new accounts, so the tests can run again without resetting the database. They never touch the
+hosted project: the app is pointed at the stack the tests are given. GitHub runs them on every push and pull request
+(`.github/workflows/live.yml`) on the Supabase CLI's stack, Realtime and Storage included, with a desktop job and a
+phone job side by side.
+
 ## What isn't covered
 
-The prototype has no server: data lives in the browser's local storage, so "both sides" means two seats or two tabs in one browser, not two people on two devices. Payments, bank clearing and wires are simulated (`clears (demo)`, `received (demo)`).
+The demo has no server: data lives in the browser's local storage, so "both sides" means two seats or two tabs in one browser, not two people on two devices. The live app (`?live`) is two people on two devices. Payments, bank clearing and wires are simulated in both (`clears (demo)`, `received (demo)`) until Stripe is connected.
 
-Without a server, two tabs can only be reconciled after the fact. If both tabs make several money moves on the same deal while neither can see the other (possible only while the browser holds one tab's updates back), one side's moves stand when the tabs meet and the other side's are undone, a payout made on that side included. The rules above keep the money consistent through that; a server, where each payment and release is one transaction, prevents it. That server is the Supabase database in `supabase/`; the prototype doesn't use it yet.
+Without a server, two tabs can only be reconciled after the fact. If both tabs make several money moves on the same deal while neither can see the other (possible only while the browser holds one tab's updates back), one side's moves stand when the tabs meet and the other side's are undone, a payout made on that side included. The rules above keep the money consistent through that; a server, where each payment and release is one transaction, prevents it. That server is the Supabase database in `supabase/`, which the live app uses (`live/README.md`).

@@ -1,0 +1,59 @@
+name: GameIn live app
+
+# Every push and pull request: start Supabase's own stack (database, sign-in, API, Realtime, Storage) with the
+# migrations and the demo seed, open the app in live mode (?live) in a desktop and a phone browser (two jobs side by
+# side), and use it as real accounts: what each seat may see, a whole deal between two new accounts with proof files,
+# signing in and out. The tests point the app at this stack, never at the hosted project. See TESTING.md.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: live-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live:
+    name: live app (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [desktop, phone]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.122.0
+      - name: Start Supabase with the migrations and the demo seed
+        run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector,postgres-meta
+      - name: Point the tests at it
+        run: |
+          supabase status -o env | tr -d '"' > "$RUNNER_TEMP/supabase.env"
+          api=$(grep '^API_URL=' "$RUNNER_TEMP/supabase.env" | cut -d= -f2-)
+          anon=$(grep '^ANON_KEY=' "$RUNNER_TEMP/supabase.env" | cut -d= -f2-)
+          test -n "$api" && test -n "$anon"
+          echo "GAMEIN_LIVE_API=$api" >> "$GITHUB_ENV"
+          echo "GAMEIN_LIVE_ANON=$anon" >> "$GITHUB_ENV"
+          echo "GAMEIN_LIVE_STORAGE=1" >> "$GITHUB_ENV"
+      - name: Use the live app
+        run: npx playwright test -c playwright.live.config.js --project=${{ matrix.project }}
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamein-live-report-${{ matrix.project }}
+          path: |
+            test-results/
+            playwright-report-live/
+          retention-days: 30
