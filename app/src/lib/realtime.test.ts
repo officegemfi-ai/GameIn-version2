@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { LIVE_SCOPES } from './keys';
 import { keysFor, WATCHED_TABLES } from './realtime';
 
 describe('which screens a changed row affects', () => {
@@ -23,5 +24,10 @@ describe('which screens a changed row affects', () => {
   it('falls back to the whole kind when the row carries no id (a delete)', () => {
     expect(keysFor('offer_versions', null)).toContainEqual(['offer']);
     expect(keysFor('payments', {})).toContainEqual(['deal']);
+  });
+
+  it('has the polling fallback refresh exactly the kinds Realtime would', () => {
+    const fromRealtime = new Set(WATCHED_TABLES.flatMap((t) => keysFor(t, {}).map((k) => k[0])));
+    expect(new Set(LIVE_SCOPES.map((k) => k[0]))).toEqual(fromRealtime);
   });
 });

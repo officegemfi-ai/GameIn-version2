@@ -1,32 +1,29 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router';
 import { Button, Card, HexAvatar, Icon, Notice, SelectField, TextAreaField, TextField } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { useAction } from '@/app/useAction';
-import { must, one } from '@/lib/db';
 import { errorMessage } from '@/lib/errors';
-import { keys } from '@/lib/keys';
-import { supabase } from '@/lib/supabase';
 import type { Platform } from '@/lib/types';
-import { PASSWORD_MIN, setNewPassword, signOut } from '@/features/auth/api';
+import { PASSWORD_MIN, setNewPassword, useSignOut } from '@/features/auth/api';
 import { useUser } from '@/features/auth/AuthProvider';
 import { useSeat, useSeats } from '@/features/seats/SeatProvider';
-import { platformsOf, useCreatorById } from '@/features/creators/api';
-import { useBrand } from '@/features/brands/api';
+import { platformsOf, useCreatorById, useSaveCreatorProfile } from '@/features/creators/api';
+import { useBrand, useSaveBrandName } from '@/features/brands/api';
+import { useProfile, useSaveProfileName } from './api';
 
 const PLATFORMS = ['twitch', 'youtube', 'tiktok', 'instagram', 'kick', 'x', 'discord'];
 
 function AccountCard() {
   const user = useUser();
-  const profile = useQuery({ queryKey: keys.profile(user.id), queryFn: () => one(supabase.from('profiles').select('display_name').eq('id', user.id).maybeSingle(), 'Your profile') });
+  const profile = useProfile(user.id);
   const [name, setName] = useState('');
   useEffect(() => setName(profile.data?.display_name ?? ''), [profile.data?.display_name]);
-  const save = useAction((n: string) => must(supabase.from('profiles').update({ display_name: n.trim() }).eq('id', user.id)), { invalidate: () => [keys.profile(user.id)], success: 'Saved.' });
+  const save = useSaveProfileName(user.id);
   const [pw, setPw] = useState('');
   const [pwError, setPwError] = useState<string | null>(null);
   const changePw = useAction(setNewPassword, { success: 'Password changed.', onSuccess: () => setPw(''), quiet: true });
-  const navigate = useNavigate();
+  const signOut = useSignOut();
 
   const submitPw = (e: FormEvent) => {
     e.preventDefault();
@@ -51,7 +48,7 @@ function AccountCard() {
           <Button type="submit" loading={changePw.isPending} disabled={!pw}>change</Button>
         </form>
         <div>
-          <Button variant="danger" icon="logout" onClick={() => void signOut().then(() => navigate('/', { replace: true }))}>sign out</Button>
+          <Button variant="danger" icon="logout" onClick={signOut}>sign out</Button>
         </div>
       </div>
     </Card>
@@ -72,25 +69,11 @@ function CreatorCard({ creatorId }: { creatorId: string }) {
     setBio(q.data.bio);
     setPlatforms(platformsOf(q.data.platforms));
   }, [q.data]);
-  const save = useAction(
-    () =>
-      must(
-        supabase
-          .from('creators')
-          .update({
-            display_name: displayName.trim(),
-            handle: handle.trim(),
-            bio: bio.trim(),
-            platforms: platforms.filter((p) => p.platform).map((p) => ({ platform: p.platform, ...(p.followers?.trim() ? { followers: p.followers.trim() } : {}) })),
-          })
-          .eq('id', creatorId),
-      ),
-    { invalidate: () => [keys.myCreator(creatorId), ['creator'], ['creators']], success: 'Creator profile saved.', onSuccess: () => void refresh() },
-  );
+  const save = useSaveCreatorProfile(creatorId, () => void refresh());
   if (!q.data) return null;
   return (
     <Card title="Creator profile" actions={<Link className="g-small" to={`/c/${q.data.handle}`}>view public page</Link>}>
-      <form className="g-stack" onSubmit={(e) => { e.preventDefault(); save.mutate(undefined); }}>
+      <form className="g-stack" onSubmit={(e) => { e.preventDefault(); save.mutate({ displayName, handle, bio, platforms }); }}>
         <div className="g-grid-2">
           <TextField label="Creator name" value={displayName} maxLength={80} onChange={(e) => setDisplayName(e.target.value)} />
           <TextField label="Handle" prefix="@" value={handle} maxLength={32} onChange={(e) => setHandle(e.target.value)} hint="Changing it changes your page’s address." />
@@ -131,15 +114,11 @@ function BrandCard({ brandId, canEdit }: { brandId: string; canEdit: boolean }) 
   const { refresh } = useSeats();
   const [name, setName] = useState('');
   useEffect(() => setName(q.data?.name ?? ''), [q.data?.name]);
-  const save = useAction(() => must(supabase.from('brands').update({ name: name.trim() }).eq('id', brandId)), {
-    invalidate: () => [keys.brand(brandId)],
-    success: 'Brand saved.',
-    onSuccess: () => void refresh(),
-  });
+  const save = useSaveBrandName(brandId, () => void refresh());
   if (!q.data) return null;
   return (
     <Card title="Brand">
-      <form className="g-row g-settings__row" onSubmit={(e) => { e.preventDefault(); save.mutate(undefined); }}>
+      <form className="g-row g-settings__row" onSubmit={(e) => { e.preventDefault(); save.mutate(name); }}>
         <TextField label="Brand name" value={name} maxLength={80} disabled={!canEdit} onChange={(e) => setName(e.target.value)} hint={canEdit ? `Web name: ${q.data.slug}` : 'Only the brand’s owners and admins can change it.'} />
         {canEdit ? <Button type="submit" loading={save.isPending} disabled={!name.trim() || name === q.data.name}>save</Button> : null}
       </form>

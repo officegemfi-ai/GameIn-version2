@@ -1,4 +1,5 @@
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
+import { affected, LIVE_SCOPES, scopes } from './keys';
 import { supabase } from './supabase';
 
 // Following the database. One Realtime channel per signed-in person listens to the tables the database publishes
@@ -13,20 +14,16 @@ export const WATCHED_TABLES = [
 
 type RowLike = Record<string, unknown> | null | undefined;
 
-/** The query keys (prefixes) a changed row affects. */
+/** The query keys (prefixes) a changed row affects. A delete may carry no ids: then the whole kind is affected. */
 export function keysFor(table: string, row: RowLike): QueryKey[] {
   const id = (k: string): string | null => (row && typeof row[k] === 'string' ? (row[k] as string) : null);
-  const one = (prefix: string, value: string | null): QueryKey => (value ? [prefix, value] : [prefix]);
-  const deal = (dealId: string | null): QueryKey[] => [
-    ['deals'], one('deal', dealId), ['todos'], ['wallet'], ['brand-money'], ['payments'],
-  ];
   switch (table) {
     case 'offers':
-      return [['offers'], one('offer', id('id')), ['todos'], ['deals']];
+      return [...affected.offer(id('id')), scopes.deals];
     case 'offer_versions':
-      return [['offers'], one('offer', id('offer_id')), ['todos']];
+      return affected.offer(id('offer_id'));
     case 'deals':
-      return deal(id('id'));
+      return affected.deal(id('id'));
     case 'milestones':
     case 'deliverables':
     case 'proofs':
@@ -34,20 +31,25 @@ export function keysFor(table: string, row: RowLike): QueryKey[] {
     case 'renewals':
     case 'ratings':
     case 'payments':
-      return deal(id('deal_id'));
+      return affected.deal(id('deal_id'));
     case 'payouts':
-      return [['wallet']];
+      return [scopes.wallet];
     case 'messages':
     case 'conversation_reads':
-      return [one('thread', id('conversation_id')), ['conversations'], ['todos']];
+      return affected.thread(id('conversation_id'));
     case 'events':
-      return [['thread']];
+      return [scopes.thread];
     case 'notifications':
-      return [['notifications']];
+      return [scopes.notifications];
     default:
       return [];
   }
 }
+
+// When Realtime last brought in a notification (this browser's clock). A notification arrives together with the rows
+// it's about, so the bell can tell which screens have refreshed since (features/notifications/NotificationBell.tsx).
+let notifiedAt = 0;
+export const lastNotificationAt = (): number => notifiedAt;
 
 // --- the connection's state, for the dot in the top bar --------------------------------------------------------------
 export type LiveState = 'off' | 'connecting' | 'live' | 'polling';
@@ -65,6 +67,13 @@ export const liveState = {
     return () => void listeners.delete(listener);
   },
 };
+
+declare global {
+  interface Window {
+    /** Tests can make the fallback refetching quicker (tests/e2e/support.ts). */
+    __gameinRealtime?: RealtimeOptions;
+  }
+}
 
 export interface RealtimeOptions {
   /** How often the screens on show refetch while Realtime is down. */
@@ -94,7 +103,9 @@ export function startRealtime(userId: string, queryClient: QueryClient, options:
     for (const k of list) pending.set(JSON.stringify(k), k);
     flushTimer ??= setTimeout(flush, 120);
   };
-  const refetchActive = () => void queryClient.invalidateQueries({ refetchType: 'active' });
+  // what Realtime would have refreshed (offers, deals, money, messages...), not the directory or the account's seats
+  const liveKinds = new Set(LIVE_SCOPES.map((s) => s[0]));
+  const refetchActive = () => void queryClient.invalidateQueries({ refetchType: 'active', predicate: (q) => liveKinds.has(q.queryKey[0]) });
   const startPolling = () => {
     if (poll || stopped) return;
     setState('polling');
@@ -111,6 +122,7 @@ export function startRealtime(userId: string, queryClient: QueryClient, options:
   for (const table of WATCHED_TABLES) {
     channel.on('postgres_changes', { event: '*', schema: 'public', table }, (payload) => {
       const row = payload.new && Object.keys(payload.new).length ? payload.new : payload.old;
+      if (table === 'notifications') notifiedAt = Date.now();
       queue(keysFor(table, row as RowLike));
     });
   }

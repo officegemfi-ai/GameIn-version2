@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAction } from '@/app/useAction';
 import { maybe, must, one } from '@/lib/db';
-import { keys } from '@/lib/keys';
+import { affected, keys, scopes } from '@/lib/keys';
 import { supabase } from '@/lib/supabase';
-import type { Seat, Side } from '@/lib/types';
+import { seatColumn, type Seat, type Side } from '@/lib/types';
 
 const CONVERSATION =
   'id, brand_id, creator_id, created_at, last_message_at, last_message_seq, brand:brands(id, name, slug), creator:creators(id, display_name, handle), conversation_reads(side, last_read_seq, last_read_at)';
@@ -13,7 +13,7 @@ async function fetchConversations(seat: Seat) {
     supabase
       .from('conversations')
       .select(CONVERSATION)
-      .eq(seat.side === 'brand' ? 'brand_id' : 'creator_id', seat.id)
+      .eq(seatColumn(seat), seat.id)
       .order('last_message_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
       .limit(100),
@@ -35,13 +35,13 @@ export const isUnread = (c: ConversationListRow, side: Side): boolean => c.last_
 /** The conversation between a brand and a creator, if they have one (its id). */
 export function useConversationWith(brandId: string | null, creatorId: string | null) {
   return useQuery({
-    queryKey: ['conversations', 'pair', brandId, creatorId],
+    queryKey: keys.conversationWith(brandId, creatorId),
     queryFn: async () => (await maybe(supabase.from('conversations').select('id').eq('brand_id', brandId!).eq('creator_id', creatorId!).maybeSingle()))?.id ?? null,
     enabled: !!brandId && !!creatorId,
   });
 }
 
-export const THREAD_LIMIT = 200;
+const THREAD_LIMIT = 200;
 
 async function fetchThread(conversationId: string) {
   const [conversation, rows] = await Promise.all([
@@ -63,7 +63,7 @@ async function sendMessage(v: { brandId: string; creatorId: string; as: Side; bo
 }
 
 export function useSendMessage(conversationId?: string) {
-  return useAction(sendMessage, { invalidate: () => [...(conversationId ? [keys.thread(conversationId)] : [['thread']]), ['conversations'], ['todos']] });
+  return useAction(sendMessage, { invalidate: () => affected.thread(conversationId ?? null) });
 }
 
 /** The first message to someone: sends it, then finds the conversation it opened. */
@@ -74,7 +74,7 @@ export function useStartConversation() {
       const c = await one(supabase.from('conversations').select('id').eq('brand_id', v.brandId).eq('creator_id', v.creatorId).maybeSingle(), 'The conversation');
       return c.id;
     },
-    { invalidate: () => [['conversations'], ['todos']], success: 'Message sent.' },
+    { invalidate: () => [scopes.conversations, scopes.todos], success: 'Message sent.' },
   );
 }
 

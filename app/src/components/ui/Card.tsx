@@ -26,7 +26,7 @@ export function Card({ title, actions, children, tone, flush, raised, className,
 
 export function Stat({ label, value, note, tone }: { label: string; value: ReactNode; note?: ReactNode; tone?: 'mint' | 'coral' }) {
   return (
-    <div className={`g-stat${tone ? ` g-stat--${tone}` : ''}`}>
+    <div className={`g-stat${tone ? ` g-stat--${tone}` : ''}`} role="group" aria-label={label}>
       <span className="g-label">{label}</span>
       <span className="g-stat__value">{value}</span>
       {note ? <span className="g-stat__note">{note}</span> : null}

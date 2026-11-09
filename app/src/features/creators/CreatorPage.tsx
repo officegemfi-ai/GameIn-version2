@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { Badge, Button, ButtonLink, Card, Dialog, Empty, ErrorState, HexAvatar, Loading, TextAreaField } from '@/components/ui';
-import { errorMessage } from '@/lib/errors';
+import { ActionDialog, Badge, Button, ButtonLink, Card, Empty, HexAvatar, Loading, QueryError, TextAreaField } from '@/components/ui';
 import { itemsFromJson } from '@/lib/items';
 import { formatCents } from '@/lib/money';
+import { OFFER_HOURS } from '@/lib/rules';
 import { formatDate } from '@/lib/time';
 import type { PackageRow } from '@/lib/types';
 import { useAuth } from '@/features/auth/AuthProvider';
@@ -30,7 +30,7 @@ export default function CreatorPage() {
   if (q.isError) {
     return (
       <div className="g-page g-public__wide">
-        <ErrorState error={errorMessage(q.error)} retry={() => void q.refetch()} />
+        <QueryError query={q} />
       </div>
     );
   }
@@ -104,61 +104,39 @@ export default function CreatorPage() {
       </Card>
 
       {booking && asBrand ? (
-        <Dialog
-          open
+        <ActionDialog
           onClose={() => setBooking(null)}
-          busy={book.isPending}
+          pending={book.isPending}
           title={`Book ${booking.title}`}
-          description={`${asBrand.name} offers ${c.display_name} ${formatCents(booking.price_cents)} for this package. ${c.display_name} has 24 hours to accept; then you fund escrow.`}
-          footer={
-            <>
-              <Button variant="ghost" onClick={() => setBooking(null)} disabled={book.isPending}>cancel</Button>
-              <Button
-                variant="primary"
-                loading={book.isPending}
-                onClick={() =>
-                  book.mutate(
-                    { brandId: asBrand.id, packageId: booking.id, priceCents: booking.price_cents, note },
-                    { onSuccess: (offerId) => navigate(`/offers/${offerId}`) },
-                  )
-                }
-              >
-                book for {formatCents(booking.price_cents)}
-              </Button>
-            </>
+          description={`${asBrand.name} offers ${c.display_name} ${formatCents(booking.price_cents)} for this package. ${c.display_name} has ${OFFER_HOURS} hours to accept; then you fund escrow.`}
+          action={<>book for {formatCents(booking.price_cents)}</>}
+          onAction={() =>
+            book.mutate(
+              { brandId: asBrand.id, packageId: booking.id, priceCents: booking.price_cents, note },
+              { onSuccess: (offerId) => navigate(`/offers/${offerId}`) },
+            )
           }
         >
           <TextAreaField label="A note for the creator (optional)" value={note} maxLength={2000} onChange={(e) => setNote(e.target.value)} placeholder="Dates, talking points, anything they should know" />
-        </Dialog>
+        </ActionDialog>
       ) : null}
 
       {writing && asBrand ? (
-        <Dialog
-          open
+        <ActionDialog
           onClose={() => setWriting(false)}
-          busy={start.isPending}
+          pending={start.isPending}
           title={`Message ${c.display_name}`}
-          footer={
-            <>
-              <Button variant="ghost" onClick={() => setWriting(false)} disabled={start.isPending}>cancel</Button>
-              <Button
-                variant="primary"
-                loading={start.isPending}
-                disabled={!message.trim()}
-                onClick={() =>
-                  start.mutate(
-                    { brandId: asBrand.id, creatorId: c.id, as: 'brand', body: message.trim() },
-                    { onSuccess: (conversationId) => navigate(`/messages/${conversationId}`) },
-                  )
-                }
-              >
-                send
-              </Button>
-            </>
+          action="send"
+          disabled={!message.trim()}
+          onAction={() =>
+            start.mutate(
+              { brandId: asBrand.id, creatorId: c.id, as: 'brand', body: message.trim() },
+              { onSuccess: (conversationId) => navigate(`/messages/${conversationId}`) },
+            )
           }
         >
           <TextAreaField label="Message" value={message} maxLength={4000} onChange={(e) => setMessage(e.target.value)} autoFocus />
-        </Dialog>
+        </ActionDialog>
       ) : null}
     </div>
   );

@@ -98,7 +98,7 @@ export async function signOut(page: Page): Promise<void> {
   await expect(page.getByRole('link', { name: 'sign in', exact: true }).first()).toBeVisible();
 }
 
-/** One deliverable's row on a deal page. */
+/** One deliverable on a deal page: the item of the deal's list that it names. */
 export function deliverable(page: Page, label: string) {
-  return page.locator('.g-deliv', { has: page.getByText(label, { exact: true }) });
+  return page.getByRole('listitem').filter({ has: page.getByText(label, { exact: true }) });
 }

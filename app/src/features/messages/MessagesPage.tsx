@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { Button, Card, Empty, ErrorState, HexAvatar, Icon, Loading, TimeAgo } from '@/components/ui';
-import { errorMessage } from '@/lib/errors';
+import { Button, Card, Empty, HexAvatar, Icon, Loading, QueryError, TimeAgo } from '@/components/ui';
 import { keys } from '@/lib/keys';
 import { messageTime } from '@/lib/time';
 import { otherSide, type Side } from '@/lib/types';
@@ -144,7 +143,7 @@ export default function MessagesPage() {
           <div className="g-messages__head">
             <h1>Messages</h1>
           </div>
-          {list.isPending ? <Loading /> : list.isError ? <ErrorState error={errorMessage(list.error)} retry={() => void list.refetch()} /> : <ConversationList rows={rows} activeId={id} side={seat.side} />}
+          {list.isPending ? <Loading /> : list.isError ? <QueryError query={list} /> : <ConversationList rows={rows} activeId={id} side={seat.side} />}
         </Card>
         <Card flush className="g-messages__thread">
           {!id ? (
@@ -153,7 +152,7 @@ export default function MessagesPage() {
             <Loading />
           ) : thread.isError ? (
             <div style={{ padding: 16 }}>
-              <ErrorState error={errorMessage(thread.error)} retry={() => void thread.refetch()} />
+              <QueryError query={thread} />
             </div>
           ) : partyMismatch ? (
             <Empty title="This conversation belongs to another seat">Switch seats from the top bar to reply as the other side.</Empty>

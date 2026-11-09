@@ -1,3 +1,5 @@
+import { useCallback } from 'react';
+import { useNavigate } from 'react-router';
 import { env } from '@/lib/env';
 import { supabase } from '@/lib/supabase';
 
@@ -36,6 +38,12 @@ export async function setNewPassword(password: string): Promise<void> {
 /** Signs out of this browser (other devices stay signed in). */
 export async function signOut(): Promise<void> {
   await supabase.auth.signOut({ scope: 'local' });
+}
+
+/** Signs out, then goes to the front page: the account menu and settings both offer it. */
+export function useSignOut(): () => void {
+  const navigate = useNavigate();
+  return useCallback(() => void signOut().then(() => navigate('/', { replace: true })), [navigate]);
 }
 
 export const PASSWORD_MIN = 8;

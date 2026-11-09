@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { Button } from './Button';
 import { Icon } from './Icon';
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -86,5 +87,47 @@ export function Dialog({ open, onClose, title, description, children, footer, wi
       </div>
     </div>,
     document.body,
+  );
+}
+
+/**
+ * A dialog for one move: cancel, or the move itself. While the move runs, the dialog can't be dismissed, cancel is
+ * off and the move's button shows it's busy.
+ */
+export function ActionDialog({
+  open = true, onClose, title, description, children, wide, action, onAction, pending = false, variant = 'primary', disabled, cancelLabel = 'cancel',
+}: {
+  open?: boolean;
+  onClose: () => void;
+  title: ReactNode;
+  description?: ReactNode;
+  children?: ReactNode;
+  wide?: boolean;
+  /** The move's button. */
+  action: ReactNode;
+  onAction: () => void;
+  pending?: boolean;
+  variant?: 'primary' | 'danger';
+  /** The move can't be made yet (the form isn't complete). */
+  disabled?: boolean;
+  cancelLabel?: string;
+}) {
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      busy={pending}
+      title={title}
+      description={description}
+      wide={wide}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={pending}>{cancelLabel}</Button>
+          <Button variant={variant} loading={pending} disabled={disabled} onClick={onAction}>{action}</Button>
+        </>
+      }
+    >
+      {children}
+    </Dialog>
   );
 }

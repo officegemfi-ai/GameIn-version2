@@ -1,7 +1,7 @@
 export { Button, ButtonLink } from './Button';
 export { Card, Stat, Progress } from './Card';
-export { Dialog } from './Dialog';
-export { Badge, Empty, ErrorState, Loading, Notice, Skeleton, Spinner } from './Feedback';
+export { ActionDialog, Dialog } from './Dialog';
+export { Badge, Empty, ErrorState, Loading, Notice, QueryError, Skeleton, Spinner, type Tone } from './Feedback';
 export { Segmented, SelectField, TextAreaField, TextField } from './Field';
 export { HexAvatar, initials } from './HexAvatar';
 export { Icon, type IconName } from './Icon';

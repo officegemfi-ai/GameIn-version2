@@ -1,25 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { keys } from '@/lib/keys';
-import { supabase } from '@/lib/supabase';
 import type { Seat } from '@/lib/types';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { fetchSeats } from './api';
 
 // The seats the signed-in person can act from (my_seats): their creator profile and every brand they work for. One is
 // the current seat; every seat-scoped query carries it in its key, so switching seats shows the other side at once.
 
 const STORAGE_KEY = 'gamein.seat';
-
-async function fetchSeats(): Promise<Seat[]> {
-  const { data, error } = await supabase.from('my_seats').select('*');
-  if (error) throw error;
-  const seats = (data ?? []).flatMap((r): Seat[] => {
-    const id = r.side === 'brand' ? r.brand_id : r.creator_id;
-    return r.side && id ? [{ side: r.side, id, name: r.name ?? '', role: r.role ?? null }] : [];
-  });
-  // the creator profile first, then brands by name
-  return seats.sort((a, b) => (a.side === b.side ? a.name.localeCompare(b.name) : a.side === 'creator' ? -1 : 1));
-}
 
 const seatKey = (s: Pick<Seat, 'side' | 'id'>) => `${s.side}:${s.id}`;
 

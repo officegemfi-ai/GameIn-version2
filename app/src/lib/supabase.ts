@@ -15,5 +15,3 @@ export const supabase = createClient<Database>(env.supabaseUrl, env.supabaseAnon
   },
   realtime: { params: { eventsPerSecond: 10 } },
 });
-
-export type SupabaseClient = typeof supabase;

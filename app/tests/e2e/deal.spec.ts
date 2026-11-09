@@ -39,7 +39,7 @@ test('a brand books a creator, they agree a price, and the work is paid from esc
     await signUp(brand, 'brand', 'Rae Brand', `acme-${id}@gamein.test`);
     await onboardBrand(brand, brandName);
     // the top bar's live dot (hidden on a phone, so checked by its state)
-    if (withRealtime) await expect(brand.locator('.g-livedot')).toHaveAttribute('data-state', 'live');
+    if (withRealtime) await expect(brand.getByTestId('live-dot')).toHaveAttribute('data-state', 'live');
     await brand.getByRole('searchbox', { name: 'Search creators' }).fill(handle);
     await brand.getByRole('link', { name: new RegExp(creatorName) }).click();
     await expect(brand).toHaveURL(new RegExp(`/c/${handle}$`));
@@ -178,7 +178,7 @@ test('a brand books a creator, they agree a price, and the work is paid from esc
     await expect(dialog).toBeHidden();
     await expect(creator.getByText('Payout to bank').first()).toBeVisible();
     // test mode pays out at once
-    await expect(creator.locator('.g-stat', { hasText: 'Paid out' })).toContainText('$332.50');
-    await expect(creator.locator('.g-stat', { hasText: 'Available' })).toContainText('$0.00');
+    await expect(creator.getByRole('group', { name: 'Paid out' })).toContainText('$332.50');
+    await expect(creator.getByRole('group', { name: 'Available' })).toContainText('$0.00');
   });
 });

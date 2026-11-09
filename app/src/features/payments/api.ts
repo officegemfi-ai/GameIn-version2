@@ -22,7 +22,6 @@ async function fetchPayments(brandId: string) {
       .limit(100),
   );
 }
-export type BrandPayment = Awaited<ReturnType<typeof fetchPayments>>[number];
 
 /** The brand's payments into escrow, newest first. */
 export function useBrandPayments(brandId: string | null) {

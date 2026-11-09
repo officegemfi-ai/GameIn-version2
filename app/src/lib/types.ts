@@ -4,11 +4,9 @@ export type { Json } from './database.types';
 
 export type Side = Enums<'side'>;
 export type BrandRole = Enums<'brand_role'>;
-export type OfferStatus = Enums<'offer_status'>;
 export type DealStatus = Enums<'deal_status'>;
 export type MilestoneStatus = Enums<'milestone_status'>;
 export type DeliverableStatus = Enums<'deliverable_status'>;
-export type ProofStatus = Enums<'proof_status'>;
 export type PaymentMethod = Enums<'payment_method'>;
 export type PaymentStatus = Enums<'payment_status'>;
 
@@ -32,27 +30,17 @@ export interface Platform {
   followers?: string;
 }
 
-export type CreatorRow = Tables<'creators'>;
-export type BrandRow = Tables<'brands'>;
 export type PackageRow = Tables<'packages'>;
 export type OfferBoardRow = Tables<'offer_board'>;
-export type OfferVersionRow = Tables<'offer_versions'>;
 export type DealRow = Tables<'deals'>;
 export type DealMoneyRow = Tables<'deal_money'>;
 export type MilestoneRow = Tables<'milestones'>;
 export type DeliverableRow = Tables<'deliverables'>;
 export type ProofRow = Tables<'proofs'>;
-export type PaymentRow = Tables<'payments'>;
-export type RatingRow = Tables<'ratings'>;
 export type TodoRow = Tables<'todos'>;
-export type ConversationRow = Tables<'conversations'>;
-export type TimelineRow = Tables<'conversation_timeline'>;
-export type WalletRow = Tables<'creator_wallet'>;
-export type WalletLineRow = Tables<'wallet_lines'>;
-export type PayoutRow = Tables<'payouts'>;
-export type BrandMoneyRow = Tables<'brand_money'>;
-export type NotificationRow = Tables<'notifications'>;
-export type EventRow = Tables<'events'>;
 
 /** The other side of a deal. */
 export const otherSide = (side: Side): Side => (side === 'brand' ? 'creator' : 'brand');
+
+/** The column that holds a seat's id on rows shared by both sides (deals, offers, conversations, to-dos). */
+export const seatColumn = (seat: Pick<Seat, 'side'>) => (seat.side === 'brand' ? 'brand_id' : 'creator_id');

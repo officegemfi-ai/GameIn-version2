@@ -1,6 +1,7 @@
 import { ButtonLink, Icon, Skeleton, type IconName } from '@/components/ui';
 import { CreatorCard } from '@/features/creators/CreatorCard';
 import { useFeaturedCreators } from '@/features/creators/api';
+import { FEE_PERCENT, INSTANT_PAYOUT_PERCENT } from '@/lib/rules';
 
 const STEPS: { icon: IconName; title: string; text: string }[] = [
   { icon: 'offers', title: 'Offer', text: 'A brand books one of your packages or sends its own terms. Counter up to eight times until it’s right.' },
@@ -47,10 +48,10 @@ export default function LandingPage() {
         <div className="g-card g-card--mint g-fees">
           <div className="g-stack-sm">
             <span className="g-label">Fees</span>
-            <h3>5% from each side, nothing else</h3>
+            <h3>{`${FEE_PERCENT}% from each side, nothing else`}</h3>
           </div>
           <p className="g-text-2">
-            Brands pay 5% on top of what they fund; creators get the release less 5%. Weekly payouts are free; an instant payout costs 1.5%.
+            {`Brands pay ${FEE_PERCENT}% on top of what they fund; creators get the release less ${FEE_PERCENT}%. Weekly payouts are free; an instant payout costs ${INSTANT_PAYOUT_PERCENT}%.`}
           </p>
         </div>
 
