@@ -1,0 +1,170 @@
+name: GameIn app
+
+# The production app in app/ (React + Supabase). Every push and pull request:
+#   check  typecheck, lint, unit tests, and the production build
+#   e2e    Supabase's own stack (migrations, demo seed, Realtime, Storage), the app built against it, and real accounts
+#          using it in a desktop and a phone browser (two jobs side by side)
+# Pushes to main then publish the site to GitHub Pages: the prototype at the root as before, the app under /app/.
+# That needs Settings → Pages → Source set to "GitHub Actions" (once); until then the deploy is skipped with a note.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: app-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: app
+
+jobs:
+  check:
+    name: typecheck, lint, unit tests, build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npm test
+      - name: Build (against the hosted project, from .env.production)
+        run: npm run build
+
+  e2e:
+    name: e2e (${{ matrix.project }})
+    runs-on: ubuntu-24.04 # Playwright 1.56 installs Chromium on Ubuntu up to 24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [desktop, phone]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.122.0
+      - name: Start Supabase with the migrations and the demo seed
+        working-directory: .
+        run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector,postgres-meta
+      - name: Point the app at it
+        working-directory: .
+        run: |
+          supabase status -o env | tr -d '"' > "$RUNNER_TEMP/supabase.env"
+          api=$(grep '^API_URL=' "$RUNNER_TEMP/supabase.env" | cut -d= -f2-)
+          anon=$(grep '^ANON_KEY=' "$RUNNER_TEMP/supabase.env" | cut -d= -f2-)
+          test -n "$api" && test -n "$anon"
+          echo "VITE_SUPABASE_URL=$api" >> "$GITHUB_ENV"
+          echo "VITE_SUPABASE_ANON_KEY=$anon" >> "$GITHUB_ENV"
+      - name: Build the app against it
+        run: npm run build
+      - name: Use the app
+        env:
+          GAMEIN_STORAGE: '1'
+          GAMEIN_REALTIME: '1'
+        run: npx playwright test --project=${{ matrix.project }}
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamein-app-e2e-${{ matrix.project }}
+          path: |
+            app/test-results/
+            app/playwright-report/
+          retention-days: 30
+
+  pages:
+    name: is Pages set to GitHub Actions?
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [check, e2e]
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: read
+    outputs:
+      ready: ${{ steps.pages.outputs.ready }}
+      base: ${{ steps.pages.outputs.base }}
+    steps:
+      - id: pages
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          site=$(gh api "repos/${{ github.repository }}/pages" 2>/dev/null || echo '{}')
+          type=$(echo "$site" | jq -r '.build_type // "off"')
+          path=$(echo "$site" | jq -r '.html_url // ""' | sed -E 's#^https?://[^/]+##')
+          echo "base=${path:-/}" >> "$GITHUB_OUTPUT"
+          if [ "$type" = "workflow" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=App not published::GitHub Pages builds from a branch here ($type). To publish the app at /app/ next to the prototype, set Settings → Pages → Source to \"GitHub Actions\" once."
+          fi
+
+  deploy:
+    name: publish to GitHub Pages
+    needs: pages
+    if: needs.pages.outputs.ready == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}app/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Build the app for /app/
+        env:
+          APP_BASE: ${{ needs.pages.outputs.base }}app/
+        run: npm run build
+      - name: Put the site together
+        working-directory: .
+        run: |
+          mkdir -p _site
+          # the prototype, as the branch build served it (minus tests, tooling and docs)
+          rsync -a ./ _site/ \
+            --exclude '.git*' --exclude node_modules --exclude _site --exclude app --exclude tests --exclude tests-live \
+            --exclude db --exclude supabase --exclude test-results --exclude 'playwright-report*' --exclude '*.md' \
+            --exclude 'package*.json' --exclude 'playwright*.config.js'
+          cp -r app/dist _site/app
+          # deep links into the app (/app/deals/…) land on 404.html first; it sends them on to the app
+          cp app/deploy/404.html _site/404.html
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

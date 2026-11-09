@@ -118,6 +118,21 @@ hosted project: the app is pointed at the stack the tests are given. GitHub runs
 (`.github/workflows/live.yml`) on the Supabase CLI's stack, Realtime and Storage included, with a desktop job and a
 phone job side by side.
 
+## The production app (`app/`)
+
+The new app has its own tests (`app/README.md` says how to run them):
+
+- unit tests (Vitest): the fee formulas against values computed by the database's own functions, deliverables
+  validation, error messages, times, the Realtime key map, activity lines, and the deliverables editor;
+- end to end (Playwright, `app/tests/e2e/`), on a desktop and a phone against the Supabase CLI's stack. Two new
+  accounts make a whole deal: a package, a booking, a counter that arrives live, acceptance, escrow funded by card
+  with the 5% fee, proof as a link and as a file, approval, undo, approval again, release, both ratings, messages
+  both ways and a payout. Also: what an outsider can't see, sign-in redirects, joining twice with one email, a wrong
+  password, switching seats, and the public pages.
+
+GitHub runs them on every push and pull request (`.github/workflows/app.yml`), then publishes the app under `/app/` on
+`main` once Pages is set to deploy from GitHub Actions.
+
 ## What isn't covered
 
 The demo has no server: data lives in the browser's local storage, so "both sides" means two seats or two tabs in one browser, not two people on two devices. The live app (`?live`) is two people on two devices. Payments, bank clearing and wires are simulated in both (`clears (demo)`, `received (demo)`) until Stripe is connected.

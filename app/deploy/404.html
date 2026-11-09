@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>GameIn</title>
+    <script>
+      // GitHub Pages answers every unknown address with this page. A deep link into the app (…/app/deals/123, opened
+      // fresh or reloaded) goes back to the app with its path in ?redirect=; the app puts the path back before it
+      // starts (app/src/main.tsx). Anything else really wasn't found.
+      (function () {
+        var path = location.pathname;
+        var at = path.indexOf('/app/');
+        if (at !== -1 && path.length > at + 5) {
+          var rest = path.slice(at + 4) + location.search + location.hash;
+          location.replace(path.slice(0, at + 5) + '?redirect=' + encodeURIComponent(rest));
+        }
+      })();
+    </script>
+    <style>
+      html { background: #26282b; color: #fff; font: 16px/1.5 system-ui, sans-serif; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; text-align: center; padding: 16px; box-sizing: border-box; }
+      a { color: #5ce5b0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1 style="font-size: 22px; margin: 0 0 8px">Page not found</h1>
+      <p style="margin: 0; color: #a9adb3">That page doesn’t exist, or it moved. <a id="home" href="/">Go to GameIn</a></p>
+    </main>
+    <script>
+      // project sites live under /<repository>/: send people to its front page, not the domain's
+      var first = location.pathname.split('/')[1];
+      if (first) document.getElementById('home').setAttribute('href', '/' + first + '/');
+    </script>
+  </body>
+</html>
