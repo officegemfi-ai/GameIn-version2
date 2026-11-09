@@ -4,6 +4,8 @@ import { Button, Card, HexAvatar, Icon, Loading, Notice, SelectField } from '@/c
 import { PageHeader } from '@/components/layout/PageHeader';
 import { centsToInput, parseDollars } from '@/lib/money';
 import { itemsFromJson } from '@/lib/items';
+import { OFFER_HOURS, PITCH_HOURS } from '@/lib/rules';
+import { useDebouncedValue } from '@/lib/useDebouncedValue';
 import { useSeat } from '@/features/seats/SeatProvider';
 import { useCreator, useCreators } from '@/features/creators/api';
 import { useBrandSearch } from '@/features/brands/api';
@@ -20,8 +22,9 @@ interface Party {
 /** A search box with results, to choose who the offer is for. */
 function PartyPicker({ kind, onPick }: { kind: 'creator' | 'brand'; onPick: (p: Party) => void }) {
   const [text, setText] = useState('');
-  const creators = useCreators(kind === 'creator' ? text : '');
-  const brands = useBrandSearch(kind === 'brand' ? text : '');
+  const search = useDebouncedValue(text);
+  const creators = useCreators(search, { enabled: kind === 'creator' });
+  const brands = useBrandSearch(search, { enabled: kind === 'brand' });
   const results: Party[] =
     kind === 'creator'
       ? (creators.data?.pages[0] ?? []).slice(0, 8).map((c) => ({ id: c.id, name: c.display_name, sub: '@' + c.handle }))
@@ -31,7 +34,7 @@ function PartyPicker({ kind, onPick }: { kind: 'creator' | 'brand'; onPick: (p: 
       <label className="g-search">
         <Icon name="discover" />
         <span className="g-visually-hidden">{kind === 'creator' ? 'Find a creator' : 'Find a brand'}</span>
-        <input className="g-input" type="search" autoFocus aria-label={kind === 'creator' ? 'Search creators' : 'Search brands'} placeholder={kind === 'creator' ? 'Find a creator by name or handle' : 'Find a brand by name'} value={text} onChange={(e) => setText(e.target.value)} />
+        <input className="g-input" type="search" autoFocus placeholder={kind === 'creator' ? 'Find a creator by name or handle' : 'Find a brand by name'} value={text} onChange={(e) => setText(e.target.value)} />
       </label>
       <div className="g-list" role="listbox" aria-label={kind === 'creator' ? 'Creators' : 'Brands'}>
         {results.map((p) => (
@@ -97,8 +100,8 @@ export default function NewOfferPage() {
         title={isBrand ? 'New offer' : 'Pitch a brand'}
         subtitle={
           isBrand
-            ? 'Set your own terms. The creator has 24 hours to accept, counter or decline.'
-            : 'Offer a brand your terms. They have 72 hours to answer.'
+            ? `Set your own terms. The creator has ${OFFER_HOURS} hours to accept, counter or decline.`
+            : `Offer a brand your terms. They have ${PITCH_HOURS} hours to answer.`
         }
       />
       <Card title={isBrand ? 'Creator' : 'Brand'}>

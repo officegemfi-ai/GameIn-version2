@@ -5,7 +5,8 @@ import { liveState } from '@/lib/realtime';
 import type { Side } from '@/lib/types';
 import { signOut } from '@/features/auth/api';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { countTodos, useTodos, type TodoCounts } from '@/features/dashboard/api';
+import { useTodos } from '@/features/dashboard/api';
+import { countTodos, type TodoCounts } from '@/features/dashboard/todos';
 import { NotificationBell } from '@/features/notifications/NotificationBell';
 import { useSeat, useSeats } from '@/features/seats/SeatProvider';
 import { SeatSwitcher } from '@/features/seats/SeatSwitcher';
@@ -34,7 +35,7 @@ function LiveDot() {
   const state = useSyncExternalStore(liveState.subscribe, liveState.get);
   const label = state === 'live' ? 'Live' : state === 'polling' ? 'Reconnecting' : 'Connecting';
   return (
-    <span className="g-livedot" data-state={state} title={state === 'live' ? 'Updates arrive as they happen' : 'Checking for updates every few seconds'}>
+    <span className="g-livedot" data-testid="live-dot" data-state={state} title={state === 'live' ? 'Updates arrive as they happen' : 'Checking for updates every few seconds'}>
       <span className="g-dot" aria-hidden="true" />
       {label}
     </span>

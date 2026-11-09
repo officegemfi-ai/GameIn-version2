@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Badge, Button, ButtonLink, Card, Dialog, Empty, ErrorState, ItemsEditor, Loading, Notice, TextAreaField, TextField } from '@/components/ui';
+import { ActionDialog, Badge, Button, ButtonLink, Card, Empty, ItemsEditor, Loading, Notice, QueryError, TextAreaField, TextField } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { errorMessage } from '@/lib/errors';
 import { checkTerms, itemsFromJson } from '@/lib/items';
@@ -27,19 +27,14 @@ function PackageForm({ creatorId, editing, onClose }: { creatorId: string; editi
   };
 
   return (
-    <Dialog
-      open
+    <ActionDialog
       wide
       onClose={onClose}
-      busy={save.isPending}
+      pending={save.isPending}
       title={editing ? 'Edit package' : 'New package'}
       description="What a brand gets for a fixed price. They can book it in one step, or send you an offer based on it."
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={save.isPending}>cancel</Button>
-          <Button variant="primary" loading={save.isPending} onClick={submit}>{editing ? 'save' : 'add package'}</Button>
-        </>
-      }
+      action={editing ? 'save' : 'add package'}
+      onAction={submit}
     >
       {shown || save.error ? <Notice tone="coral">{shown ?? errorMessage(save.error)}</Notice> : null}
       <TextField label="Title" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Stream logo placement" />
@@ -50,7 +45,7 @@ function PackageForm({ creatorId, editing, onClose }: { creatorId: string; editi
       <TextAreaField label="Description" value={description} maxLength={2000} onChange={(e) => setDescription(e.target.value)} placeholder="Where it appears, how big, how often" />
       <TextField label="Code (optional)" value={code} maxLength={12} onChange={(e) => setCode(e.target.value)} hint="A short label for your own reference, e.g. SO3." />
       <ItemsEditor items={items} onChange={setItems} />
-    </Dialog>
+    </ActionDialog>
   );
 }
 
@@ -85,7 +80,7 @@ export default function PackagesPage() {
       {packages.isPending ? (
         <Loading />
       ) : packages.isError ? (
-        <ErrorState error={errorMessage(packages.error)} retry={() => void packages.refetch()} />
+        <QueryError query={packages} />
       ) : packages.data.length === 0 ? (
         <Card>
           <Empty title="No packages yet" action={<Button variant="primary" icon="plus" onClick={() => setEditing('new')}>add your first package</Button>}>

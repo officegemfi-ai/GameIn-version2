@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { errorMessage } from '@/lib/errors';
 
 export function Spinner({ label }: { label?: string }) {
   return <span className="g-spinner" role={label ? 'status' : undefined} aria-label={label} />;
@@ -26,7 +27,8 @@ export function Empty({ title, children, action }: { title: string; children?: R
   );
 }
 
-type Tone = 'mint' | 'coral' | 'amber' | 'neutral';
+/** The colour a status speaks in. */
+export type Tone = 'mint' | 'coral' | 'amber' | 'neutral';
 
 export function Notice({ tone = 'neutral', children, action }: { tone?: Tone; children: ReactNode; action?: ReactNode }) {
   return (
@@ -44,6 +46,11 @@ export function ErrorState({ error, retry }: { error: string; retry?: () => void
       {error}
     </Notice>
   );
+}
+
+/** A query that failed, from the query itself: its error in plain words, and its refetch as "try again". */
+export function QueryError({ query }: { query: { error: unknown; refetch: () => unknown } }) {
+  return <ErrorState error={errorMessage(query.error)} retry={() => void query.refetch()} />;
 }
 
 export function Badge({ tone = 'neutral', children }: { tone?: Tone | 'solid'; children: ReactNode }) {

@@ -1,17 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAction } from '@/app/useAction';
 import { must, one } from '@/lib/db';
-import { keys } from '@/lib/keys';
-import { formatCents } from '@/lib/money';
+import { affected, keys, scopes } from '@/lib/keys';
+import { PITCH_HOURS, UNDO_SECONDS } from '@/lib/rules';
 import { uploadProof } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
-import type { DealMoneyRow, MilestoneStatus, PaymentMethod, Seat, Side } from '@/lib/types';
+import { seatColumn, type PaymentMethod, type Seat, type Side } from '@/lib/types';
 
 const LIST = 'id, title, status, type, created_at, ends_on, brand:brands(id, name, slug), creator:creators(id, display_name, handle), deliverables(status, due_on)';
 const DETAIL = '*, brand:brands(id, name, slug), creator:creators(id, display_name, handle), milestones(*), deliverables(*), proofs(*), releases(*), ratings(*), payments(*)';
 
 async function fetchDeals(seat: Seat) {
-  const column = seat.side === 'brand' ? 'brand_id' : 'creator_id';
+  const column = seatColumn(seat);
   const [deals, money] = await Promise.all([
     must(supabase.from('deals').select(LIST).eq(column, seat.id).order('created_at', { ascending: false }).limit(200)),
     must(supabase.from('deal_money').select('*').eq(column, seat.id)),
@@ -48,28 +48,17 @@ export function useDeal(id: string) {
   return useQuery({ queryKey: keys.deal(id), queryFn: () => fetchDeal(id) });
 }
 
-export const MILESTONE_LABEL: Record<MilestoneStatus, { label: string; tone: 'mint' | 'coral' | 'amber' | 'neutral' }> = {
-  pending: { label: 'not funded', tone: 'coral' },
-  processing: { label: 'clearing', tone: 'amber' },
-  awaiting_wire: { label: 'awaiting wire', tone: 'amber' },
-  in_escrow: { label: 'in escrow', tone: 'mint' },
-  released: { label: 'released', tone: 'neutral' },
-};
-
-/** The one line that says where a deal stands, for its seat. */
-export function dealHeadline(m: DealMoneyRow | null, status: string, side: Side): string {
-  if (status === 'completed') return 'Complete: everything released';
-  if (status === 'cancelled') return 'Cancelled';
-  if (!m) return '';
-  if ((m.not_funded_cents ?? 0) > 0 && (m.funded_cents ?? 0) + (m.clearing_cents ?? 0) === 0) {
-    return side === 'brand' ? `Fund ${formatCents(m.not_funded_cents)} so the work can start` : 'Waiting on the brand to fund escrow';
-  }
-  if ((m.clearing_cents ?? 0) > 0) return `${formatCents(m.clearing_cents)} clearing`;
-  return `${formatCents(m.in_escrow_cents)} in escrow · ${formatCents(m.released_cents)} released`;
+/** Which deal a proof belongs to (notification links point at proofs). */
+export function useProofDeal(proofId: string) {
+  return useQuery({
+    queryKey: keys.proofDeal(proofId),
+    queryFn: () => one(supabase.from('proofs').select('deal_id').eq('id', proofId).maybeSingle(), 'That proof'),
+  });
 }
 
 // --- moves -------------------------------------------------------------------------------------------------------
-const dealKeys = (dealId: string) => [keys.deal(dealId), ['deals'], ['todos'], ['wallet'], ['brand-money'], ['payments'], ['thread']];
+// a move on a deal also writes an event, which shows in the pair's conversation
+const dealKeys = (dealId: string) => [...affected.deal(dealId), scopes.thread];
 
 export function useFund() {
   return useAction(
@@ -104,9 +93,7 @@ export function useSubmitProof() {
   );
 }
 
-/** Approving starts a 6-second undo window; the money releases when it ends. */
-export const UNDO_SECONDS = 6;
-
+/** Approving starts the undo window (UNDO_SECONDS); the money releases when it ends. */
 export function useApproveProof() {
   return useAction(
     (v: { dealId: string; proofId: string }) => must(supabase.rpc('approve_proof', { p_proof: v.proofId, p_undo_seconds: UNDO_SECONDS })),
@@ -146,6 +133,6 @@ export function useRateDeal() {
 export function useBookAgain() {
   return useAction(
     (v: { dealId: string; note: string }) => must(supabase.rpc('book_again', { p_deal: v.dealId, p_note: v.note })),
-    { invalidate: () => [['offers'], ['todos']], success: 'Sent. The brand has 72 hours to answer.' },
+    { invalidate: () => [scopes.offers, scopes.todos], success: `Sent. The brand has ${PITCH_HOURS} hours to answer.` },
   );
 }

@@ -100,30 +100,35 @@ GameIn-version2/
 │  │  │  ├─ database.types.ts   ← generated from the database (supabase gen types)
 │  │  │  ├─ types.ts            ← app types: Side, Seat, Item, row aliases
 │  │  │  ├─ money.ts            ← cents, formatting, the fee formulas (mirror the database's)
+│  │  │  ├─ rules.ts            ← the database's business rules the UI mirrors: fees, answer windows, limits
 │  │  │  ├─ items.ts            ← deliverables: parse, validate (mirror items_valid)
 │  │  │  ├─ time.ts             ← relative time, countdowns, due dates
 │  │  │  ├─ errors.ts           ← database refusals and auth errors → readable messages
-│  │  │  ├─ keys.ts             ← query-key factory
+│  │  │  ├─ keys.ts             ← query keys, their scopes, and what each change affects (moves + Realtime)
 │  │  │  ├─ realtime.ts         ← one channel per person → targeted invalidation, polling fallback
-│  │  │  └─ storage.ts          ← proof uploads, signed links
-│  │  ├─ features/              ← one folder per domain: api.ts (queries + mutations) and its screens
+│  │  │  ├─ storage.ts          ← proof uploads, signed links
+│  │  │  └─ useDebouncedValue.ts ← search boxes ask when typing pauses
+│  │  ├─ features/              ← one folder per domain: api.ts (queries + mutations), model.ts (pure
+│  │  │                            domain logic: labels, states, predicates) and its screens
 │  │  │  ├─ auth/               ← session provider, sign in/up, password reset
 │  │  │  ├─ seats/              ← creator/brand seats, the seat switcher
 │  │  │  ├─ onboarding/         ← create a creator profile or a brand
 │  │  │  ├─ landing/            ← the public home page
-│  │  │  ├─ dashboard/          ← to-dos, money, active deals
+│  │  │  ├─ dashboard/          ← to-dos (todos.tsx: one table for badges and tasks), money, active deals
 │  │  │  ├─ creators/           ← discover, public creator pages
 │  │  │  ├─ brands/             ← brand lookup (for pitches)
 │  │  │  ├─ packages/           ← a creator's packages
 │  │  │  ├─ offers/             ← list, detail, new offer/pitch, counter
-│  │  │  ├─ deals/              ← list, detail: funding, proof, approval, release, rating
+│  │  │  ├─ deals/              ← list, detail (DealPage → Deliverables, DealExtras, FundDialog, Proof):
+│  │  │  │                         funding, proof, approval, release, rating
 │  │  │  ├─ messages/           ← conversations and threads
 │  │  │  ├─ wallet/             ← creator balance, history, payouts
 │  │  │  ├─ payments/           ← brand payments and escrow
 │  │  │  ├─ notifications/      ← the bell, readable activity
 │  │  │  └─ settings/           ← account, creator profile, brand
 │  │  ├─ components/
-│  │  │  ├─ ui/                 ← design system: Button, Field, Card, Badge, Tabs, Dialog, Toast, HexAvatar...
+│  │  │  ├─ ui/                 ← design system: Button, Field, Card, Badge, Tabs, Dialog + ActionDialog, Toast,
+│  │  │  │                         QueryError, time labels on one shared clock, HexAvatar...
 │  │  │  └─ layout/             ← AppShell (sidebar, top bar, phone bottom bar), PublicShell, PageHeader
 │  │  ├─ assets/fonts/          ← Rajdhani and Michroma (OFL), served with the app
 │  │  └─ styles/                ← tokens.css (the palette), base.css, ui.css, layout.css, pages.css
@@ -139,9 +144,17 @@ GameIn-version2/
 └─ index.html, live/, tests/    ← the prototype and its live mode (until the app replaces them)
 ```
 
-**Feature module rule.** A screen talks to the backend only through its feature's `api.ts`. Those hooks are the
-app's API layer: queries with typed rows, and mutations that call one database function and invalidate the right
-keys. Shared UI lives in `components/ui`, and nothing in `ui` knows about the database.
+**Feature module rules.**
+
+- A screen talks to the backend only through a feature's `api.ts`. Those hooks are the app's API layer: queries with
+  typed rows, and mutations that call one database function and invalidate the right keys. No screen imports the
+  Supabase client (only the session provider does).
+- Pure domain logic (what a status means, which deals are active, what a to-do counts toward) lives in the feature's
+  `model.ts`, without React or fetching, and is unit tested.
+- Every query key comes from `lib/keys.ts`, and so does what a change affects (`affected.deal(id)` ...): moves and
+  Realtime mark the same queries stale, so the person who moved and the person watching see the same refresh.
+- A business number shown on screen (5%, 24 hours, 7 days) comes from `lib/rules.ts`, never a literal.
+- Shared UI lives in `components/ui`, and nothing in `ui` knows about the database.
 
 ## 4. Database schema
 
@@ -338,12 +351,14 @@ the other side's data without a reload.
 
 **Live updates:**
 
-- `lib/realtime.ts` opens one channel per signed-in person and maps each changed row to the query keys it affects.
-  For example, a `proofs` row invalidates `['deal', deal_id]`, the deal lists, the to-dos and the wallet. Only the
-  screens on show refetch.
-- If Realtime can't connect, active screens refetch every 5 seconds until it's back.
-- The notification bell checks every 30 seconds as a safety net. The app also refetches when the tab comes back
-  into view.
+- `lib/realtime.ts` opens one channel per signed-in person and maps each changed row to the query keys it affects
+  (`affected` in `lib/keys.ts`). For example, a `proofs` row invalidates `['deal', deal_id]`, the deal lists, the
+  to-dos and the wallet. Only the screens on show refetch.
+- If Realtime can't connect, the screens on show refetch every 5 seconds until it's back: the kinds Realtime would
+  have refreshed (`LIVE_SCOPES`), not the creator directory or the account's seats.
+- The notification bell checks every 30 seconds as a safety net. When a newer notification turns up, it refreshes
+  the screens on show that haven't refreshed since it arrived, so a move that Realtime already delivered isn't
+  fetched twice. The app also refetches when the tab comes back into view.
 
 **Design system.**
 
@@ -393,7 +408,8 @@ brand API, admin tools.
 - **Database**: `db/tests` checks every rule, the money arithmetic, and races (two tabs approving at once) on three
   Postgres versions.
 - **App unit tests** (Vitest) cover money formatting and the fee formulas (checked against values computed by the
-  database's own functions), deliverables validation, error messages, time formatting, the realtime key map, activity
+  database's own functions), deliverables validation, error messages, time formatting and the shared clock, the
+  cache keys and what each change affects (Realtime and moves alike), the deal model, the to-do kinds, activity
   lines, proof file names, offer turns, and the deliverables editor.
 - **App end to end** (Playwright) runs on desktop and phone against the Supabase CLI stack with the migrations and
   seed. Two new people in two browsers:

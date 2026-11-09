@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAction } from '@/app/useAction';
 import { must } from '@/lib/db';
 import { itemsToJson } from '@/lib/items';
-import { keys } from '@/lib/keys';
+import { affected, keys } from '@/lib/keys';
 import { supabase } from '@/lib/supabase';
 import type { Item } from '@/lib/types';
 
@@ -40,13 +40,13 @@ export function useSavePackage() {
       if (p.id) await must(supabase.from('packages').update(row).eq('id', p.id));
       else await must(supabase.from('packages').insert({ ...row, creator_id: p.creatorId, active: true }));
     },
-    { invalidate: (_r, p) => [keys.packages(p.creatorId), ['creator'], ['creators']], success: (_r, p) => (p.id ? 'Package saved.' : 'Package added. Brands can book it now.') },
+    { invalidate: (_r, p) => affected.packages(p.creatorId), success: (_r, p) => (p.id ? 'Package saved.' : 'Package added. Brands can book it now.') },
   );
 }
 
 export function useSetPackageActive() {
   return useAction(
     (v: { id: string; creatorId: string; active: boolean }) => must(supabase.from('packages').update({ active: v.active }).eq('id', v.id)),
-    { invalidate: (_r, v) => [keys.packages(v.creatorId), ['creator'], ['creators']], success: (_r, v) => (v.active ? 'Package listed.' : 'Package hidden. Brands can’t book it now.') },
+    { invalidate: (_r, v) => affected.packages(v.creatorId), success: (_r, v) => (v.active ? 'Package listed.' : 'Package hidden. Brands can’t book it now.') },
   );
 }

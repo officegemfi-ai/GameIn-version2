@@ -38,10 +38,8 @@ export function errorMessage(error: unknown): string {
   const e = error as ErrorLike;
   const message = typeof e.message === 'string' ? e.message : '';
 
-  if (e.name === 'TypeError' && /fetch|network|load failed/i.test(message)) {
-    return 'Can’t reach GameIn. Check your connection and try again.';
-  }
-  if (/Failed to fetch|NetworkError|Load failed/i.test(message)) {
+  // the browser couldn't reach the server at all (each browser words it differently)
+  if ((e.name === 'TypeError' && /fetch|network|load failed/i.test(message)) || /Failed to fetch|NetworkError|Load failed/i.test(message)) {
     return 'Can’t reach GameIn. Check your connection and try again.';
   }
   if (e.code && AUTH[e.code]) return AUTH[e.code];

@@ -1,8 +1,9 @@
+import { DEFAULT_ITEM_DAYS, MAX_ITEM_LABEL, MAX_ITEMS } from '@/lib/rules';
 import type { Item } from '@/lib/types';
 import { Icon } from './Icon';
 
-/** Editable deliverables for offers and packages: a name each and the days to do it (1 to 20 of them). */
-export function ItemsEditor({ items, onChange, max = 20 }: { items: Item[]; onChange: (items: Item[]) => void; max?: number }) {
+/** Editable deliverables for offers and packages: a name each and the days to do it (1 to MAX_ITEMS of them). */
+export function ItemsEditor({ items, onChange, max = MAX_ITEMS }: { items: Item[]; onChange: (items: Item[]) => void; max?: number }) {
   const set = (i: number, patch: Partial<Item>) => onChange(items.map((it, n) => (n === i ? { ...it, ...patch } : it)));
   return (
     <fieldset className="g-items">
@@ -16,7 +17,7 @@ export function ItemsEditor({ items, onChange, max = 20 }: { items: Item[]; onCh
               aria-label={`Deliverable ${i + 1}`}
               placeholder={i === 0 ? 'e.g. Launch stream with logo' : 'Another deliverable'}
               value={it.label}
-              maxLength={120}
+              maxLength={MAX_ITEM_LABEL}
               onChange={(e) => set(i, { label: e.target.value })}
             />
             <div className="g-prefix g-items__days">
@@ -24,7 +25,7 @@ export function ItemsEditor({ items, onChange, max = 20 }: { items: Item[]; onCh
                 className="g-input"
                 aria-label={`Days for deliverable ${i + 1}`}
                 inputMode="numeric"
-                placeholder="7"
+                placeholder={String(DEFAULT_ITEM_DAYS)}
                 value={it.days ?? ''}
                 onChange={(e) => {
                   const v = e.target.value.replace(/\D/g, '').slice(0, 3);
@@ -50,7 +51,7 @@ export function ItemsEditor({ items, onChange, max = 20 }: { items: Item[]; onCh
           <Icon name="plus" /> add a deliverable
         </button>
       ) : null}
-      <span className="g-field__hint">Each deliverable gets an equal share of the price, paid when the brand approves its proof. Days count from when the deal starts (7 if left empty).</span>
+      <span className="g-field__hint">{`Each deliverable gets an equal share of the price, paid when the brand approves its proof. Days count from when the deal starts (${DEFAULT_ITEM_DAYS} if left empty).`}</span>
     </fieldset>
   );
 }

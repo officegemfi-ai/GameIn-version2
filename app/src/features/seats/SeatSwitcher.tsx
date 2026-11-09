@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { HexAvatar, Icon } from '@/components/ui';
-import { signOut } from '@/features/auth/api';
+import { useSignOut } from '@/features/auth/api';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useSeats } from './SeatProvider';
 
@@ -10,6 +10,7 @@ export function SeatSwitcher() {
   const { seats, seat, setSeat, creatorSeat } = useSeats();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const signOut = useSignOut();
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
@@ -72,7 +73,7 @@ export function SeatSwitcher() {
             className="g-menu__item"
             onClick={() => {
               setOpen(false);
-              void signOut().then(() => navigate('/', { replace: true }));
+              signOut();
             }}
           >
             <Icon name="logout" /> Sign out

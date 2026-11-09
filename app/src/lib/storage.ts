@@ -3,7 +3,7 @@ import { supabase } from './supabase';
 // Proof files live in the private `proofs` bucket, in the deal's folder. Only the deal's creator can upload there,
 // nobody can overwrite or delete, and both parties open files through links that expire.
 
-export const PROOF_BUCKET = 'proofs';
+const PROOF_BUCKET = 'proofs';
 export const MAX_PROOF_BYTES = 50 * 1024 * 1024;
 
 /** Where a file goes: `<deal id>/<time>-<safe name>`, so names never clash and the database can tell its deal. */

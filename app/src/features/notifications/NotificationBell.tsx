@@ -3,10 +3,14 @@ import { Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { Icon, TimeAgo } from '@/components/ui';
 import { keys } from '@/lib/keys';
+import { lastNotificationAt } from '@/lib/realtime';
 import { useUser } from '@/features/auth/AuthProvider';
 import { useSeat } from '@/features/seats/SeatProvider';
 import { describeEvent } from './describe';
 import { markNotificationsRead, useNotifications, type NotificationItem } from './api';
+
+/** How recently a notification must have come over Realtime for the screens it touched to count as refreshed. */
+const CAUGHT_UP_MS = 10_000;
 
 function line(n: NotificationItem, viewer: 'brand' | 'creator') {
   if (n.kind === 'message' || !n.event) return { text: 'New message', to: '/messages' };
@@ -27,11 +31,17 @@ export function NotificationBell() {
   const box = useRef<HTMLDivElement>(null);
   const unread = (data ?? []).filter((n) => !n.read_at).length;
 
-  // the safety net under Realtime: a notification newer than the last one seen means the screen may be behind
+  // The safety net under Realtime: a notification newer than the last one seen means the screen may be behind.
+  // Realtime brings a notification together with the rows it's about, and the screens those rows touch refresh at
+  // once; so refresh what hasn't refreshed since it arrived (or since now, when it came some other way), not all of it.
   const newest = data?.[0]?.id ?? 0;
   const seen = useRef(newest);
   useEffect(() => {
-    if (newest > seen.current && seen.current > 0) void queryClient.invalidateQueries({ refetchType: 'active' });
+    if (newest > seen.current && seen.current > 0) {
+      const arrived = lastNotificationAt();
+      const since = Date.now() - arrived < CAUGHT_UP_MS ? arrived : Date.now();
+      void queryClient.invalidateQueries({ refetchType: 'active', predicate: (q) => q.state.fetchStatus !== 'fetching' && q.state.dataUpdatedAt < since });
+    }
     seen.current = Math.max(seen.current, newest);
   }, [newest, queryClient]);
 

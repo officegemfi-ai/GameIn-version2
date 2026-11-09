@@ -1,11 +1,11 @@
 import { Link } from 'react-router';
-import { Badge, Button, Card, Empty, ErrorState, Loading, Notice, Stat } from '@/components/ui';
+import { Badge, Button, Card, Empty, Loading, Notice, QueryError, Stat } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { errorMessage } from '@/lib/errors';
 import { formatCents } from '@/lib/money';
 import { formatDate } from '@/lib/time';
 import { useSeat } from '@/features/seats/SeatProvider';
 import { useSimulatePayment } from '@/features/deals/api';
+import { paymentStatus } from '@/features/deals/model';
 import { useBrandMoney, useBrandPayments } from './api';
 
 export default function PaymentsPage() {
@@ -27,7 +27,7 @@ export default function PaymentsPage() {
   return (
     <div className="g-page">
       <PageHeader title="Payments" subtitle={`${seat.name}’s money in escrow, and every payment into it.`} />
-      {money.isError ? <ErrorState error={errorMessage(money.error)} retry={() => void money.refetch()} /> : null}
+      {money.isError ? <QueryError query={money} /> : null}
       <div className="g-grid-4">
         <Stat label="In escrow" value={formatCents(m?.in_escrow_cents)} tone="mint" note="released when you approve" />
         <Stat label="To fund" value={formatCents(m?.not_funded_cents)} tone={(m?.not_funded_cents ?? 0) > 0 ? 'coral' : undefined} note="accepted, not funded yet" />
@@ -39,7 +39,7 @@ export default function PaymentsPage() {
         {payments.isPending ? (
           <Loading />
         ) : payments.isError ? (
-          <ErrorState error={errorMessage(payments.error)} retry={() => void payments.refetch()} />
+          <QueryError query={payments} />
         ) : payments.data.length === 0 ? (
           <Empty title="No payments yet">You fund escrow from a deal once the creator accepts.</Empty>
         ) : (
@@ -57,6 +57,7 @@ export default function PaymentsPage() {
               <tbody>
                 {payments.data.map((p) => {
                   const clearing = p.status === 'processing' || p.status === 'awaiting_wire';
+                  const st = paymentStatus(p.status);
                   return (
                     <tr key={p.id}>
                       <td className="g-nowrap" data-label="Date">{formatDate(p.created_at)}<div className="g-tiny g-faint">{p.reference}</div></td>
@@ -67,7 +68,7 @@ export default function PaymentsPage() {
                       <td data-label="Method">{p.method_label}</td>
                       <td data-label="Status">
                         <div className="g-row-wrap">
-                          <Badge tone={p.status === 'succeeded' ? 'mint' : p.status === 'failed' ? 'coral' : 'amber'}>{p.status === 'succeeded' ? 'in escrow' : p.status.replace('_', ' ')}</Badge>
+                          <Badge tone={st.tone}>{st.label}</Badge>
                           {clearing && p.provider === 'simulated' ? (
                             <Button size="sm" variant="ghost" loading={simulate.isPending && simulate.variables?.paymentId === p.id} onClick={() => simulate.mutate({ dealId: p.deal_id, paymentId: p.id, outcome: 'cleared' })}>
                               mark cleared (test)

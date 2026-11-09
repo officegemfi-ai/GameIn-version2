@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Button, Dialog, Notice, Segmented, useToast } from '@/components/ui';
+import { ActionDialog, Notice, Segmented, useToast } from '@/components/ui';
 import { formatCents, fundingFee } from '@/lib/money';
+import { FEE_PERCENT } from '@/lib/rules';
 import type { PaymentMethod } from '@/lib/types';
 import { useFund, type DealDetail } from './api';
 
@@ -29,34 +30,23 @@ export function FundDialog({ deal, onClose }: { deal: DealDetail; onClose: () =>
   const total = base + fee;
 
   return (
-    <Dialog
-      open
+    <ActionDialog
       onClose={onClose}
-      busy={fund.isPending}
+      pending={fund.isPending}
       title="Fund escrow"
       description={`The money waits with GameIn until you approve ${deal.creator?.display_name ?? 'the creator'}’s proof. Test mode: nothing is charged.`}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={fund.isPending}>cancel</Button>
-          <Button
-            variant="primary"
-            loading={fund.isPending}
-            disabled={chosen.length === 0}
-            onClick={() =>
-              fund.mutate(
-                { dealId: deal.id, method, scope },
-                {
-                  onSuccess: () => {
-                    toast.info(method === 'card' ? `Escrow funded: ${formatCents(base)} is in escrow.` : 'Payment started. Escrow funds when it clears.');
-                    onClose();
-                  },
-                },
-              )
-            }
-          >
-            fund {formatCents(total)}
-          </Button>
-        </>
+      action={<>fund {formatCents(total)}</>}
+      disabled={chosen.length === 0}
+      onAction={() =>
+        fund.mutate(
+          { dealId: deal.id, method, scope },
+          {
+            onSuccess: () => {
+              toast.info(method === 'card' ? `Escrow funded: ${formatCents(base)} is in escrow.` : 'Payment started. Escrow funds when it clears.');
+              onClose();
+            },
+          },
+        )
       }
     >
       {pending.length > 1 ? (
@@ -87,7 +77,7 @@ export function FundDialog({ deal, onClose }: { deal: DealDetail; onClose: () =>
             </tr>
           ))}
           <tr>
-            <td className="g-muted">GameIn brand fee (5%)</td>
+            <td className="g-muted">GameIn brand fee ({FEE_PERCENT}%)</td>
             <td className="g-right g-num g-muted">{formatCents(fee)}</td>
           </tr>
           <tr className="g-fundsum__total">
@@ -97,6 +87,6 @@ export function FundDialog({ deal, onClose }: { deal: DealDetail; onClose: () =>
         </tbody>
       </table>
       {method !== 'card' ? <Notice tone="amber">In test mode you mark the payment as cleared yourself, from the deal’s payments.</Notice> : null}
-    </Dialog>
+    </ActionDialog>
   );
 }

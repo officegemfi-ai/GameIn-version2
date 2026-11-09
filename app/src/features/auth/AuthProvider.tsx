@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Session, User } from '@supabase/supabase-js';
-import { startRealtime, type RealtimeOptions } from '@/lib/realtime';
+import { startRealtime } from '@/lib/realtime';
 import { supabase } from '@/lib/supabase';
 
 interface AuthState {
@@ -15,13 +15,6 @@ interface AuthState {
 }
 
 const AuthContext = createContext<AuthState | null>(null);
-
-declare global {
-  interface Window {
-    /** Tests can make the fallback refetching faster (tests/support.ts). */
-    __gameinRealtime?: RealtimeOptions;
-  }
-}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();

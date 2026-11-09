@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Dialog, Icon, Notice, TextAreaField, TextField, useNow, useToast } from '@/components/ui';
+import { ActionDialog, Button, Icon, Notice, TextAreaField, TextField, useNow, useToast } from '@/components/ui';
 import { errorMessage } from '@/lib/errors';
 import { MAX_PROOF_BYTES, proofFileName, proofFileUrl } from '@/lib/storage';
 import type { DeliverableRow, ProofRow } from '@/lib/types';
@@ -69,18 +69,13 @@ export function ProofDialog({ dealId, deliverable, brandName, onClose }: { dealI
   };
 
   return (
-    <Dialog
-      open
+    <ActionDialog
       onClose={onClose}
-      busy={submit.isPending}
+      pending={submit.isPending}
       title={`Proof for ${deliverable.label}`}
       description={`${brandName} reviews it; approving releases this part of the money to you.`}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={submit.isPending}>cancel</Button>
-          <Button variant="primary" loading={submit.isPending} onClick={send}>send proof</Button>
-        </>
-      }
+      action="send proof"
+      onAction={send}
     >
       {problem || submit.error ? <Notice tone="coral">{problem ?? errorMessage(submit.error)}</Notice> : null}
       <TextField label="Link" type="url" inputMode="url" placeholder="https://twitch.tv/videos/…" value={link} onChange={(e) => setLink(e.target.value)} hint="The stream, video or post." />
@@ -90,7 +85,7 @@ export function ProofDialog({ dealId, deliverable, brandName, onClose }: { dealI
         <span className="g-field__hint">A screenshot, a clip or a report, up to 50 MB. Only you and the brand can open it.</span>
       </div>
       <TextAreaField label="Note (optional)" value={note} maxLength={2000} onChange={(e) => setNote(e.target.value)} placeholder="When it went live, where to look" />
-    </Dialog>
+    </ActionDialog>
   );
 }
 

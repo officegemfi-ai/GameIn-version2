@@ -1,43 +1,49 @@
 import { Link } from 'react-router';
-import { Badge, ButtonLink, Card, Empty, ErrorState, Icon, Loading, Stat, TimeLeft } from '@/components/ui';
+import { Badge, ButtonLink, Card, Empty, Icon, Loading, QueryError, Stat } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { errorMessage } from '@/lib/errors';
 import { formatCents } from '@/lib/money';
 import { dueLabel } from '@/lib/time';
-import type { Seat, TodoRow } from '@/lib/types';
+import type { Seat, Side } from '@/lib/types';
 import { useSeat } from '@/features/seats/SeatProvider';
-import { useDeals, dealHeadline, type DealListRow } from '@/features/deals/api';
+import { useDeals, type DealListRow } from '@/features/deals/api';
+import { dealHeadline, isActiveDeal, owesFunding } from '@/features/deals/model';
 import { useMyPackages } from '@/features/packages/api';
-import { useWallet } from '@/features/wallet/api';
+import { useWalletSummary } from '@/features/wallet/api';
 import { useBrandMoney } from '@/features/payments/api';
 import { useReadyDeliverables, useTodos } from './api';
+import { todoTasks, type Task } from './todos';
 
-interface Task {
-  key: string;
-  chip: string;
-  tone: 'mint' | 'coral' | 'amber' | 'neutral';
-  text: React.ReactNode;
-  to: string;
-  amount?: number | null;
+type ReadyDeliverable = NonNullable<ReturnType<typeof useReadyDeliverables>['data']>[number];
+
+/** A funded deliverable waiting for the creator's proof (or new proof, after changes were asked for). */
+function deliverTask(dl: ReadyDeliverable): Task {
+  const redo = dl.status === 'changes_requested';
+  return {
+    key: 'd' + dl.id,
+    chip: redo ? 'redo' : 'deliver',
+    tone: redo ? 'coral' : 'mint',
+    to: `/deals/${dl.deal.id}`,
+    amount: dl.amount_cents,
+    text: (
+      <>
+        {redo ? 'Send new proof for ' : 'Deliver '}
+        <b className="g-strong">{dl.label}</b>
+        <span className="g-muted"> · {dl.deal.title}{dl.due_on ? `, ${dueLabel(dl.due_on)}` : ''}</span>
+      </>
+    ),
+  };
 }
 
-function todoTask(t: TodoRow): Task | null {
-  const amount = t.amount_cents;
-  switch (t.kind) {
-    case 'answer_offer':
-      return { key: 'o' + t.ref_id, chip: 'offer', tone: 'mint', to: `/offers/${t.ref_id}`, amount, text: <>Answer <b className="g-strong">{t.title}</b>{t.due_at ? <span className="g-muted"> · <TimeLeft until={t.due_at} /></span> : null}</> };
-    case 'answer_counter':
-    case 'answer_pitch':
-      return { key: 'o' + t.ref_id, chip: t.kind === 'answer_pitch' ? 'pitch' : 'counter', tone: 'mint', to: `/offers/${t.ref_id}`, amount, text: <>Answer <b className="g-strong">{t.title}</b>{t.due_at ? <span className="g-muted"> · <TimeLeft until={t.due_at} /></span> : null}</> };
-    case 'review_proof':
-      return { key: 'p' + t.ref_id, chip: 'proof', tone: 'amber', to: `/proofs/${t.ref_id}`, amount, text: <>Review proof for <b className="g-strong">{t.title}</b></> };
-    case 'unread_messages':
-      return { key: 'm' + t.ref_id, chip: 'message', tone: 'neutral', to: `/messages/${t.ref_id}`, text: 'Unread messages' };
-    case 'answer_renewal':
-      return { key: 'r' + t.ref_id, chip: 'renew', tone: 'neutral', to: '/deals', amount, text: <>Renewal for <b className="g-strong">{t.title}</b></> };
-    default:
-      return null;
-  }
+/** A deal the brand still has to put money into. */
+function fundTask(d: DealListRow): Task {
+  return {
+    key: 'f' + d.id,
+    chip: 'fund',
+    tone: 'coral',
+    to: `/deals/${d.id}`,
+    amount: d.money?.not_funded_cents,
+    text: <>Fund <b className="g-strong">{d.title}</b><span className="g-muted"> so {d.creator?.display_name} can start</span></>,
+  };
 }
 
 function TaskList({ tasks, empty }: { tasks: Task[]; empty: string }) {
@@ -56,8 +62,8 @@ function TaskList({ tasks, empty }: { tasks: Task[]; empty: string }) {
   );
 }
 
-function ActiveDeals({ deals, side }: { deals: DealListRow[]; side: Seat['side'] }) {
-  const active = deals.filter((d) => d.status === 'awaiting_funding' || d.status === 'in_progress').slice(0, 5);
+function ActiveDeals({ deals, side }: { deals: DealListRow[]; side: Side }) {
+  const active = deals.filter(isActiveDeal).slice(0, 5);
   return (
     <Card title="Active deals" actions={<Link className="g-small" to="/deals">see all</Link>}>
       {active.length === 0 ? (
@@ -79,32 +85,28 @@ function ActiveDeals({ deals, side }: { deals: DealListRow[]; side: Seat['side']
   );
 }
 
+/** Both dashboards end the same way: what needs this seat, and its deals under way. */
+function NeedsYou({ tasks, empty, deals, side }: { tasks: Task[]; empty: string; deals: DealListRow[]; side: Side }) {
+  return (
+    <div className="g-grid-2">
+      <Card title="Needs you">
+        <TaskList tasks={tasks} empty={empty} />
+      </Card>
+      <ActiveDeals deals={deals} side={side} />
+    </div>
+  );
+}
+
 function CreatorDashboard({ seat }: { seat: Seat }) {
   const todos = useTodos(seat);
-  const wallet = useWallet(seat.id);
+  const wallet = useWalletSummary(seat.id);
   const ready = useReadyDeliverables(seat.id);
   const deals = useDeals(seat);
   const packages = useMyPackages(seat.id);
   if (todos.isPending || deals.isPending) return <Loading />;
-  if (todos.isError) return <ErrorState error={errorMessage(todos.error)} retry={() => void todos.refetch()} />;
-  const w = wallet.data?.wallet;
-  const tasks: Task[] = [
-    ...(todos.data ?? []).map(todoTask).filter((t): t is Task => !!t),
-    ...(ready.data ?? []).map((dl) => ({
-      key: 'd' + dl.id,
-      chip: dl.status === 'changes_requested' ? 'redo' : 'deliver',
-      tone: (dl.status === 'changes_requested' ? 'coral' : 'mint') as Task['tone'],
-      to: `/deals/${dl.deal.id}`,
-      amount: dl.amount_cents,
-      text: (
-        <>
-          {dl.status === 'changes_requested' ? 'Send new proof for ' : 'Deliver '}
-          <b className="g-strong">{dl.label}</b>
-          <span className="g-muted"> · {dl.deal.title}{dl.due_on ? `, ${dueLabel(dl.due_on)}` : ''}</span>
-        </>
-      ),
-    })),
-  ];
+  if (todos.isError) return <QueryError query={todos} />;
+  const w = wallet.data;
+  const tasks = [...todoTasks(todos.data), ...(ready.data ?? []).map(deliverTask)];
   return (
     <div className="g-page">
       <PageHeader title={`Hi, ${seat.name}`} subtitle="What needs you, and where your money is." actions={<ButtonLink to="/offers/new" icon="plus">pitch a brand</ButtonLink>} />
@@ -124,12 +126,7 @@ function CreatorDashboard({ seat }: { seat: Seat }) {
           </div>
         </Card>
       ) : null}
-      <div className="g-grid-2">
-        <Card title="Needs you">
-          <TaskList tasks={tasks} empty="You’re all caught up." />
-        </Card>
-        <ActiveDeals deals={deals.data ?? []} side="creator" />
-      </div>
+      <NeedsYou tasks={tasks} empty="You’re all caught up." deals={deals.data ?? []} side="creator" />
     </div>
   );
 }
@@ -139,12 +136,9 @@ function BrandDashboard({ seat }: { seat: Seat }) {
   const money = useBrandMoney(seat.id);
   const deals = useDeals(seat);
   if (todos.isPending || deals.isPending) return <Loading />;
-  if (todos.isError) return <ErrorState error={errorMessage(todos.error)} retry={() => void todos.refetch()} />;
+  if (todos.isError) return <QueryError query={todos} />;
   const m = money.data;
-  const fund: Task[] = (deals.data ?? [])
-    .filter((d) => (d.money?.not_funded_cents ?? 0) > 0 && d.status !== 'cancelled')
-    .map((d) => ({ key: 'f' + d.id, chip: 'fund', tone: 'coral', to: `/deals/${d.id}`, amount: d.money?.not_funded_cents, text: <>Fund <b className="g-strong">{d.title}</b><span className="g-muted"> so {d.creator?.display_name} can start</span></> }));
-  const tasks: Task[] = [...fund, ...(todos.data ?? []).map(todoTask).filter((t): t is Task => !!t)];
+  const tasks = [...(deals.data ?? []).filter(owesFunding).map(fundTask), ...todoTasks(todos.data)];
   const noDeals = (deals.data ?? []).length === 0;
   return (
     <div className="g-page">
@@ -162,12 +156,7 @@ function BrandDashboard({ seat }: { seat: Seat }) {
           </Empty>
         </Card>
       ) : null}
-      <div className="g-grid-2">
-        <Card title="Needs you">
-          <TaskList tasks={tasks} empty="Nothing waits on you." />
-        </Card>
-        <ActiveDeals deals={deals.data ?? []} side="brand" />
-      </div>
+      <NeedsYou tasks={tasks} empty="Nothing waits on you." deals={deals.data ?? []} side="brand" />
     </div>
   );
 }

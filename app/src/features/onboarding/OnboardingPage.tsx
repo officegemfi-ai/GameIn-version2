@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Button, Card, Notice, TextField, useToast } from '@/components/ui';
-import { must } from '@/lib/db';
 import { errorMessage } from '@/lib/errors';
-import { supabase } from '@/lib/supabase';
 import { useUser } from '@/features/auth/AuthProvider';
 import { useSeats } from '@/features/seats/SeatProvider';
+import { createCreatorProfile } from '@/features/creators/api';
+import { createBrand } from '@/features/brands/api';
 
 /** "Instant Shock" → "instantshock": a handle to start from. */
 export function suggestHandle(name: string): string {
@@ -22,7 +22,7 @@ function CreatorForm({ defaultName, onDone }: { defaultName: string; onDone: (id
     setError(null);
     setBusy(true);
     try {
-      onDone(await must(supabase.rpc('create_creator_profile', { p_handle: handle.trim(), p_display_name: displayName.trim() })));
+      onDone(await createCreatorProfile(handle, displayName));
     } catch (err) {
       setError(errorMessage(err));
       setBusy(false);
@@ -49,7 +49,7 @@ function BrandForm({ onDone }: { onDone: (id: string) => void }) {
     setError(null);
     setBusy(true);
     try {
-      onDone(await must(supabase.rpc('create_brand', { p_name: name.trim() })));
+      onDone(await createBrand(name));
     } catch (err) {
       setError(errorMessage(err));
       setBusy(false);

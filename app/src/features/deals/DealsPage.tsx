@@ -1,17 +1,17 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { Badge, Card, Empty, ErrorState, HexAvatar, Loading, Progress, Tabs } from '@/components/ui';
+import { Badge, Card, Empty, HexAvatar, Loading, Progress, QueryError, Tabs } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { errorMessage } from '@/lib/errors';
 import { formatCents } from '@/lib/money';
 import { useSeat } from '@/features/seats/SeatProvider';
-import { dealHeadline, useDeals, type DealListRow } from './api';
+import { useDeals, type DealListRow } from './api';
+import { dealHeadline, isActiveDeal, isFinishedDeal, owesFunding } from './model';
 
 function DealRow({ d, side }: { d: DealListRow; side: 'brand' | 'creator' }) {
   const other = side === 'brand' ? d.creator?.display_name : d.brand?.name;
   const done = d.deliverables.filter((x) => x.status === 'done').length;
   const review = d.deliverables.filter((x) => x.status === 'in_review').length;
-  const owes = side === 'brand' && (d.money?.not_funded_cents ?? 0) > 0 && d.status !== 'cancelled';
+  const owes = side === 'brand' && owesFunding(d);
   return (
     <Link to={`/deals/${d.id}`} className="g-item">
       <HexAvatar name={other} size={40} brand={side === 'creator'} />
@@ -35,8 +35,8 @@ export default function DealsPage() {
   const seat = useSeat();
   const q = useDeals(seat);
   const [tab, setTab] = useState<'active' | 'done'>('active');
-  const rows = (q.data ?? []).filter((d) => (tab === 'active' ? d.status === 'awaiting_funding' || d.status === 'in_progress' : d.status === 'completed' || d.status === 'cancelled'));
-  const activeCount = (q.data ?? []).filter((d) => d.status === 'awaiting_funding' || d.status === 'in_progress').length;
+  const rows = (q.data ?? []).filter(tab === 'active' ? isActiveDeal : isFinishedDeal);
+  const activeCount = (q.data ?? []).filter(isActiveDeal).length;
   return (
     <div className="g-page">
       <PageHeader title="Deals" subtitle="Accepted offers: the money in escrow, the work delivered, what’s been released." />
@@ -44,7 +44,7 @@ export default function DealsPage() {
       {q.isPending ? (
         <Loading />
       ) : q.isError ? (
-        <ErrorState error={errorMessage(q.error)} retry={() => void q.refetch()} />
+        <QueryError query={q} />
       ) : rows.length === 0 ? (
         <Card>
           <Empty title={tab === 'active' ? 'No active deals' : 'No completed deals yet'}>

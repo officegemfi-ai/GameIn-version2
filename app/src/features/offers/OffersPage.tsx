@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { Badge, ButtonLink, Card, Empty, ErrorState, HexAvatar, Loading, Tabs, TimeAgo, TimeLeft } from '@/components/ui';
+import { Badge, ButtonLink, Card, Empty, HexAvatar, Loading, QueryError, Tabs, TimeAgo, TimeLeft } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { errorMessage } from '@/lib/errors';
 import { itemsFromJson } from '@/lib/items';
 import { formatCents } from '@/lib/money';
+import { MAX_COUNTERS, OFFER_HOURS, PITCH_HOURS } from '@/lib/rules';
 import { useSeat } from '@/features/seats/SeatProvider';
-import { offerState, useOffers, type OfferListRow } from './api';
+import { useOffers, type OfferListRow } from './api';
+import { offerState } from './model';
 
 type Tab = 'yours' | 'theirs' | 'closed';
 
@@ -61,7 +62,7 @@ export default function OffersPage() {
     <div className="g-page">
       <PageHeader
         title="Offers"
-        subtitle="Each reply restarts the clock: 24 hours to answer (72 for a pitch), up to 8 changes."
+        subtitle={`Each reply restarts the clock: ${OFFER_HOURS} hours to answer (${PITCH_HOURS} for a pitch), up to ${MAX_COUNTERS} changes.`}
         actions={
           seat.side === 'brand' ? (
             <ButtonLink to="/discover" variant="primary" icon="discover">find a creator</ButtonLink>
@@ -83,7 +84,7 @@ export default function OffersPage() {
       {q.isPending ? (
         <Loading />
       ) : q.isError ? (
-        <ErrorState error={errorMessage(q.error)} retry={() => void q.refetch()} />
+        <QueryError query={q} />
       ) : groups[current].length === 0 ? (
         <Card>
           <Empty title={empty[current]} />

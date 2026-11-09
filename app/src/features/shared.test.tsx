@@ -5,8 +5,8 @@ import { ItemsEditor } from '@/components/ui/ItemsEditor';
 import { initials } from '@/components/ui/HexAvatar';
 import { proofFileName, proofPath } from '@/lib/storage';
 import type { Item } from '@/lib/types';
-import { offerState } from './offers/api';
-import { cleanSearch } from './creators/api';
+import { offerState } from './offers/model';
+import { cleanSearch, creatorProfileRow } from './creators/api';
 import { suggestHandle } from './onboarding/OnboardingPage';
 import { shortLink } from './deals/Proof';
 
@@ -33,6 +33,17 @@ describe('small helpers', () => {
   it('shortens proof links for display', () => {
     expect(shortLink('https://www.twitch.tv/videos/2299110')).toBe('twitch.tv/videos/2299110');
     expect(shortLink('not a url')).toBe('not a url');
+  });
+
+  it('saves a creator profile the way the database keeps it', () => {
+    expect(
+      creatorProfileRow({
+        displayName: ' Nova ',
+        handle: ' nova ',
+        bio: ' FPS streams ',
+        platforms: [{ platform: 'twitch', followers: ' 350K ' }, { platform: '', followers: '1' }, { platform: 'kick', followers: '  ' }],
+      }),
+    ).toEqual({ display_name: 'Nova', handle: 'nova', bio: 'FPS streams', platforms: [{ platform: 'twitch', followers: '350K' }, { platform: 'kick' }] });
   });
 
   it('says whose turn an offer is', () => {
