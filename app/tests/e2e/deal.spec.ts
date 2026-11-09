@@ -38,7 +38,8 @@ test('a brand books a creator, they agree a price, and the work is paid from esc
   await test.step('a brand joins, finds the creator and books the package', async () => {
     await signUp(brand, 'brand', 'Rae Brand', `acme-${id}@gamein.test`);
     await onboardBrand(brand, brandName);
-    if (withRealtime) await expect(brand.getByText('Live', { exact: true })).toBeVisible();
+    // the top bar's live dot (hidden on a phone, so checked by its state)
+    if (withRealtime) await expect(brand.locator('.g-livedot')).toHaveAttribute('data-state', 'live');
     await brand.getByRole('searchbox', { name: 'Search creators' }).fill(handle);
     await brand.getByRole('link', { name: new RegExp(creatorName) }).click();
     await expect(brand).toHaveURL(new RegExp(`/c/${handle}$`));
