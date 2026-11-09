@@ -1,0 +1,108 @@
+/* ---- the signed-in app: top bar, sidebar on a computer, bottom bar on a phone --------------------------------- */
+.g-app { min-height: 100dvh; display: grid; grid-template-rows: var(--topbar-h) 1fr; grid-template-columns: var(--sidebar-w) 1fr; grid-template-areas: 'top top' 'side main'; }
+.g-topbar {
+  grid-area: top; position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 16px; padding: 0 18px;
+  background: var(--rail); border-bottom: 1px solid var(--border);
+}
+.g-topbar__logo { display: flex; align-items: center; width: calc(var(--sidebar-w) - 18px); flex: none; }
+.g-topbar__logo svg { height: 22px; width: auto; }
+.g-topbar__end { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.g-sidebar { grid-area: side; position: sticky; top: var(--topbar-h); height: calc(100dvh - var(--topbar-h)); overflow-y: auto; padding: 18px 0; background: var(--rail); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+.g-nav { display: flex; flex-direction: column; }
+.g-nav a {
+  position: relative; display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+  color: var(--text-2); font-size: 14px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; text-decoration: none;
+}
+.g-nav a:hover { color: var(--text); background: rgba(255, 255, 255, 0.03); }
+.g-nav a.active { color: var(--mint); background: linear-gradient(90deg, var(--mint-soft), transparent); }
+.g-nav a.active::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--mint); }
+.g-nav svg { width: 18px; height: 18px; flex: none; }
+.g-nav__badge { margin-left: auto; }
+.g-sidebar__foot { margin-top: auto; padding: 16px 20px 4px; }
+.g-main { grid-area: main; min-width: 0; padding: 26px 28px 48px; }
+.g-page { max-width: var(--page-max); margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+.g-page--narrow { max-width: 760px; }
+
+/* seat switcher */
+.g-seat { position: relative; }
+.g-seat__btn { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 4px 12px 4px 6px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface-3); cursor: pointer; text-align: left; max-width: 260px; }
+.g-seat__btn:hover { border-color: rgba(255, 255, 255, 0.24); }
+.g-seat__text { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
+.g-seat__name { font-weight: 700; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.g-seat__side { font-size: 11.5px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--mint); }
+.g-livedot { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.g-livedot[data-state='live'] { color: var(--mint); border-color: var(--mint-line); }
+.g-livedot[data-state='live'] .g-dot { box-shadow: 0 0 0 3px var(--mint-soft); }
+.g-livedot[data-state='polling'] .g-dot, .g-livedot[data-state='connecting'] .g-dot { background: var(--amber); }
+.g-iconbtn { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: transparent; color: var(--text-2); cursor: pointer; }
+.g-iconbtn:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+.g-iconbtn svg { width: 19px; height: 19px; }
+.g-iconbtn .g-count { position: absolute; top: -7px; right: -7px; }
+
+/* the bell's panel */
+.g-bell { position: relative; }
+.g-bell__panel { width: min(380px, calc(100vw - 24px)); max-height: min(520px, 70dvh); overflow-y: auto; padding: 4px; }
+.g-notif { display: flex; gap: 10px; padding: 10px 12px; border-radius: var(--radius-sm); color: var(--text); text-decoration: none; }
+.g-notif:hover { background: rgba(255, 255, 255, 0.05); text-decoration: none; }
+.g-notif__text { flex: 1; min-width: 0; font-size: 15px; line-height: 1.3; }
+.g-notif__time { font-size: 13px; color: var(--muted); }
+.g-notif .g-dot { margin-top: 7px; }
+.g-notif[data-read='true'] .g-dot { background: transparent; }
+
+/* phone: no sidebar, a bottom bar instead */
+.g-bottombar { display: none; }
+@media (max-width: 899px) {
+  .g-app { grid-template-columns: 1fr; grid-template-areas: 'top' 'main'; }
+  .g-sidebar { display: none; }
+  .g-topbar { padding: 0 12px; gap: 8px; }
+  .g-topbar__logo { width: auto; }
+  .g-topbar__logo svg { height: 18px; }
+  .g-livedot { display: none; }
+  .g-seat__btn { max-width: 168px; min-height: 40px; padding-right: 8px; }
+  .g-main { padding: 18px 14px calc(var(--bottombar-h) + 28px + env(safe-area-inset-bottom)); }
+  .g-bottombar {
+    position: fixed; z-index: 50; left: 0; right: 0; bottom: 0;
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    height: calc(var(--bottombar-h) + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);
+    background: var(--rail); border-top: 1px solid var(--border);
+  }
+  .g-bottombar a, .g-bottombar button {
+    position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    border: 0; background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 700; text-decoration: none; cursor: pointer;
+  }
+  .g-bottombar a.active { color: var(--mint); }
+  .g-bottombar a.active::before { content: ''; position: absolute; inset: 6px 10px; border-radius: var(--radius); background: var(--mint-soft); z-index: -1; }
+  .g-bottombar svg { width: 21px; height: 21px; }
+  .g-bottombar .g-count { position: absolute; top: 6px; left: calc(50% + 6px); }
+}
+@media (max-width: 380px) { .g-seat__text { display: none; } }
+
+/* the phone's More sheet */
+.g-more { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.g-more a, .g-more button { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 8px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-3); color: var(--text); font-weight: 700; font-size: 14px; text-decoration: none; cursor: pointer; }
+.g-more svg { width: 22px; height: 22px; color: var(--mint); }
+
+/* ---- page header ---------------------------------------------------------------------------------------------- */
+.g-pagehead { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.g-pagehead__text { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.g-pagehead__text p { color: var(--text-2); }
+.g-back { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+.g-back:hover { color: var(--text); text-decoration: none; }
+@media (max-width: 599px) { h1 { font-size: 24px; } }
+
+/* ---- the public site ------------------------------------------------------------------------------------------ */
+.g-public { min-height: 100dvh; display: flex; flex-direction: column; }
+.g-public__top { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 12px; height: var(--topbar-h); padding: 0 24px; background: rgba(37, 39, 42, 0.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+.g-public__top svg { height: 22px; width: auto; }
+.g-public__main { flex: 1; width: 100%; }
+.g-public__foot { padding: 28px 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 14px; }
+.g-public__foot > div { max-width: var(--page-max); margin: 0 auto; display: flex; gap: 20px; flex-wrap: wrap; justify-content: space-between; }
+.g-public__narrow { max-width: 440px; margin: 0 auto; padding: 40px 16px 64px; }
+.g-public__wide { max-width: var(--page-max); margin: 0 auto; padding: 32px 24px 64px; }
+@media (max-width: 599px) {
+  .g-public__top { padding: 0 14px; }
+  .g-public__top svg { height: 18px; }
+  .g-public__top .g-btn { padding: 0 10px; }
+  .g-public__wide { padding: 20px 14px 48px; }
+}

@@ -1,0 +1,50 @@
+/* GameIn's design tokens: the prototype's palette and type, in one place */
+@font-face { font-family: 'Rajdhani'; font-style: normal; font-weight: 400; font-display: swap; src: url('../assets/fonts/rajdhani-400.woff2') format('woff2'); }
+@font-face { font-family: 'Rajdhani'; font-style: normal; font-weight: 500; font-display: swap; src: url('../assets/fonts/rajdhani-500.woff2') format('woff2'); }
+@font-face { font-family: 'Rajdhani'; font-style: normal; font-weight: 600; font-display: swap; src: url('../assets/fonts/rajdhani-600.woff2') format('woff2'); }
+@font-face { font-family: 'Rajdhani'; font-style: normal; font-weight: 700; font-display: swap; src: url('../assets/fonts/rajdhani-700.woff2') format('woff2'); }
+@font-face { font-family: 'Michroma'; font-style: normal; font-weight: 400; font-display: swap; src: url('../assets/fonts/michroma-400.woff2') format('woff2'); }
+
+:root {
+  /* surfaces, darkest to lightest */
+  --bg: #26282b;
+  --rail: #25272a;
+  --nav: #2f3236;
+  --surface-3: #313438;
+  --surface: #3c4044;
+  --surface-2: #42464b;
+  --border: rgba(255, 255, 255, 0.085);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  /* text */
+  --text: #ffffff;
+  --text-2: #c2c6cc;
+  --muted: #8a8e94;
+  --faint: #70757b;
+
+  /* accents: mint for actions and money that's moving, coral for what's owed or wrong, amber for waiting */
+  --mint: #5ce5b0;
+  --mint-ink: #12251d;
+  --mint-soft: rgba(92, 229, 176, 0.12);
+  --mint-line: rgba(92, 229, 176, 0.45);
+  --coral: #ea7171;
+  --coral-soft: rgba(234, 113, 113, 0.12);
+  --coral-line: rgba(234, 113, 113, 0.5);
+  --amber: #e5b55a;
+  --amber-soft: rgba(229, 181, 90, 0.12);
+  --sky: #b0b2b4;
+
+  /* shape and type */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 8px;
+  --font: 'Rajdhani', Bahnschrift, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Michroma', 'Rajdhani', system-ui, sans-serif;
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--mint);
+
+  /* layout */
+  --topbar-h: 60px;
+  --sidebar-w: 212px;
+  --bottombar-h: 64px;
+  --page-max: 1200px;
+}
