@@ -215,3 +215,71 @@ test('a package whose price changed while a brand was booking it can be booked a
   await expect(brand).toHaveURL(/\/offers\/[0-9a-f-]{36}$/);
   await expect(brand.getByText(now).first()).toBeVisible();
 });
+
+test('what’s typed for one conversation stays with it, and isn’t in the next one’s box', async ({ page }) => {
+  // the creator Instant Shock talks to five brands
+  await signIn(page, 'demo@gamein.test', DEMO_PASSWORD);
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.getByRole('button', { name: 'Acting as Instant Shock (creator). Switch seat' })).toBeVisible();
+  await page.goto('/messages');
+  const list = page.getByRole('navigation', { name: 'Conversations' });
+  await expect(list).toBeVisible();
+  const box = (name: string) => page.getByLabel(`Message ${name}`, { exact: true });
+  const open = async (name: string) => {
+    // on a phone the open conversation covers the list: back to the list first
+    if (!(await list.isVisible())) await page.getByRole('link', { name: 'All conversations' }).click();
+    await list.getByRole('link', { name: new RegExp(name) }).click();
+    await expect(box(name)).toBeVisible();
+  };
+  // both conversations have been looked at, as on any working day (the page has them at hand from then on)
+  await open('VOLTEDGE');
+  await open('GRIDFUEL');
+  await open('VOLTEDGE');
+  const draft = 'For you I can do $2,000, less than GRIDFUEL pays';
+  await box('VOLTEDGE').fill(draft);
+
+  // a glance at the other conversation: the text used to be sitting in its box, one Enter from GRIDFUEL
+  await open('GRIDFUEL');
+  await expect(box('GRIDFUEL')).toHaveValue('');
+  // and it is still where it was written
+  await open('VOLTEDGE');
+  await expect(box('VOLTEDGE')).toHaveValue(draft);
+});
+
+test('a sheet opened for one offer is gone when Back leads to another offer', async ({ browser }, testInfo) => {
+  const brand = await person(browser, testInfo);
+  const creator = await person(browser, testInfo);
+  // HYPERCORE books one of Instant Shock's packages: a new offer, and a notification about it on top of the bell
+  await signIn(brand, 'manager@hypercore.test', DEMO_PASSWORD);
+  await expect(brand).toHaveURL(/\/dashboard$/);
+  await brand.goto('/c/instantshock');
+  const card = brand.getByRole('article').filter({ has: brand.getByRole('heading', { name: 'CODES: SHOCK10 — 1 MONTH', exact: true }) });
+  await card.getByRole('button', { name: 'book', exact: true }).click();
+  await brand.getByRole('dialog', { name: 'Book CODES: SHOCK10 — 1 MONTH' }).getByRole('button', { name: /^book for/ }).click();
+  await expect(brand).toHaveURL(/\/offers\/[0-9a-f-]{36}$/);
+  const booked = new URL(brand.url()).pathname;
+
+  // the creator is looking at GRIDFUEL's offer when it comes in, and presses the notification
+  await signIn(creator, 'demo@gamein.test', DEMO_PASSWORD);
+  await expect(creator).toHaveURL(/\/dashboard$/);
+  await creator.goto('/offers');
+  await creator.getByRole('link', { name: /XMAS STREAM LOGO CAMPAIGN/ }).click();
+  await expect(creator.getByRole('heading', { name: 'XMAS STREAM LOGO CAMPAIGN' })).toBeVisible();
+  await creator.getByRole('button', { name: /^Notifications/ }).click();
+  await creator.getByRole('region', { name: 'Notifications' }).locator(`a[href$="${booked}"]`).first().click();
+  await expect(creator).toHaveURL(new RegExp(`${booked}$`));
+  await expect(creator.getByRole('heading', { name: 'CODES: SHOCK10 — 1 MONTH' })).toBeVisible();
+
+  // a decline for HYPERCORE's offer, half written, and the phone's Back to get out of the sheet
+  await creator.getByRole('button', { name: 'decline', exact: true }).click();
+  await creator.getByRole('dialog').getByLabel(/^Reason/).fill('Not at this price, HYPERCORE.');
+  await creator.goBack();
+  await expect(creator.getByRole('heading', { name: 'XMAS STREAM LOGO CAMPAIGN' })).toBeVisible();
+  // the sheet used to stay open over GRIDFUEL's offer with HYPERCORE's reason in it: "decline" declined the wrong one
+  await expect(creator.getByRole('dialog')).toHaveCount(0);
+  await expect(creator.getByRole('button', { name: 'accept offer' })).toBeVisible();
+  // and Forward shows HYPERCORE's offer afresh, not mid-decline
+  await creator.goForward();
+  await expect(creator.getByRole('heading', { name: 'CODES: SHOCK10 — 1 MONTH' })).toBeVisible();
+  await expect(creator.getByRole('dialog')).toHaveCount(0);
+});

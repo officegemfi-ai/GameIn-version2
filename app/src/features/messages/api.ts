@@ -61,6 +61,9 @@ export function newestLineKey(timeline: Pick<Thread['timeline'][number], 'kind' 
   return newest ? `${newest.kind}:${newest.ref}` : '';
 }
 
+/** Where an unsent message waits (lib/drafts.ts): with its conversation, as written from one side of it. */
+export const draftPlace = (conversationId: string, side: Side): string => `message:${conversationId}:${side}`;
+
 /** A conversation: its last 200 lines (messages and the deal's events), oldest first. */
 export function useThread(conversationId: string | undefined) {
   return useQuery({ queryKey: keys.thread(conversationId ?? 'none'), queryFn: () => fetchThread(conversationId!), enabled: !!conversationId });

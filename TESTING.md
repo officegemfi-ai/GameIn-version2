@@ -133,7 +133,8 @@ The new app has its own tests (`app/README.md` says how to run them):
   its reproduction as a test that fails on the code as it was. A deal opened from the wrong seat, a "review proof"
   link on a long deal, a dashboard when a request fails, the undo window on a device whose clock is off, a message
   typed while the last one is sending, "seen" on a message nobody looked at, "299,99" typed as a price, a brand name
-  the database can't make a web name from, a package repriced while it's being booked.
+  the database can't make a web name from, a package repriced while it's being booked, a message typed for one brand
+  turning up in another brand's box, a decline or a rating written for one offer or deal landing on another.
 
 GitHub runs them on every push and pull request (`.github/workflows/app.yml`), then publishes the app under `/app/` on
 `main` once Pages is set to deploy from GitHub Actions.

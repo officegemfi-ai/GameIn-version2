@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button, Card, Empty, HexAvatar, Icon, Loading, QueryError, TimeAgo } from '@/components/ui';
+import { restoreDraft, useDraft } from '@/lib/drafts';
 import { keys } from '@/lib/keys';
 import { messageTime } from '@/lib/time';
 import { otherSide, type Side } from '@/lib/types';
@@ -10,7 +11,7 @@ import { OtherSeat } from '@/features/seats/OtherSeat';
 import { isParty } from '@/features/seats/party';
 import { useSeat } from '@/features/seats/SeatProvider';
 import { describeEvent } from '@/features/notifications/describe';
-import { isUnread, markRead, newestLineKey, readSeq, useConversations, useSendMessage, useThread, type ConversationListRow, type Thread } from './api';
+import { draftPlace, isUnread, markRead, newestLineKey, readSeq, useConversations, useSendMessage, useThread, type ConversationListRow, type Thread } from './api';
 
 function otherName(c: Pick<ConversationListRow, 'brand' | 'creator'>, side: Side): string {
   return side === 'brand' ? c.creator?.display_name ?? 'Creator' : c.brand?.name ?? 'Brand';
@@ -87,20 +88,21 @@ function EventLine({ row, names, side }: { row: Thread['timeline'][number]; name
 /** The box a message is written in. Exported for its tests. */
 export function Composer({ thread, side }: { thread: Thread; side: Side }) {
   const c = thread.conversation;
-  const [text, setText] = useState('');
+  // What's typed belongs to this conversation, written from this side (lib/drafts.ts), not to the box: looking at
+  // another conversation doesn't take it along, and coming back finds it.
+  const place = draftPlace(c.id, side);
+  const [text, setText] = useDraft(place);
   const send = useSendMessage(c.id);
   const name = otherName(c, side);
   const submit = () => {
     const body = text.trim();
     if (!body || send.isPending) return;
     // The box empties as the message leaves, so the next one can be typed while this one is on its way. (Emptying it
-    // when the answer came back wiped whatever had been typed in between.) If it doesn't arrive, it goes back in the
-    // box, ahead of anything typed since.
+    // when the answer came back wiped whatever had been typed in between.) If it doesn't arrive, it goes back in its
+    // conversation's box, ahead of anything typed since, and waits there even if the person has moved on meanwhile.
+    // (That's why this isn't mutate's own onError: that one is dropped once this box is off screen.)
     setText('');
-    send.mutate(
-      { brandId: c.brand_id, creatorId: c.creator_id, as: side, body },
-      { onError: () => setText((typed) => (typed.trim() ? `${body}\n${typed}` : body)) },
-    );
+    void send.mutateAsync({ brandId: c.brand_id, creatorId: c.creator_id, as: side, body }).catch(() => restoreDraft(place, body));
   };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter sends and Shift+Enter starts a new line. Enter that picks a word in an input method (Japanese, Chinese,
@@ -194,7 +196,8 @@ export default function MessagesPage() {
                 </div>
               </div>
               <Timeline thread={thread.data} side={seat.side} />
-              <Composer thread={thread.data} side={seat.side} />
+              {/* a box of its own per conversation and side: one that is still sending doesn't hold up the next */}
+              <Composer key={draftPlace(thread.data.conversation.id, seat.side)} thread={thread.data} side={seat.side} />
             </>
           )}
         </Card>

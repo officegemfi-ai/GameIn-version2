@@ -91,7 +91,8 @@ GameIn-version2/
 │  ├─ src/
 │  │  ├─ main.tsx               ← boot: mounts <App/>
 │  │  ├─ app/                   ← App (providers), routes, route guards, useAction (mutations + toasts),
-│  │  │                            deepLink.ts (puts a deep link's path back before the router starts)
+│  │  │                            deepLink.ts (puts a deep link's path back before the router starts),
+│  │  │                            startOver.tsx (a page about one offer, deal or creator starts over for each)
 │  │  ├─ lib/                   ← framework-free modules
 │  │  │  ├─ supabase.ts         ← the typed client
 │  │  │  ├─ env.ts              ← the Supabase URL and key, the base path
@@ -108,7 +109,8 @@ GameIn-version2/
 │  │  │  ├─ realtime.ts         ← one channel per person → targeted invalidation, polling fallback
 │  │  │  ├─ storage.ts          ← proof uploads, signed links
 │  │  │  ├─ useDebouncedValue.ts ← search boxes ask when typing pauses
-│  │  │  └─ usePageVisible.ts   ← whether the tab is being looked at (read receipts wait for it)
+│  │  │  ├─ usePageVisible.ts   ← whether the tab is being looked at (read receipts wait for it)
+│  │  │  └─ drafts.ts           ← text typed and not sent yet, kept by the place it was typed for
 │  │  ├─ features/              ← one folder per domain: api.ts (queries + mutations), model.ts (pure
 │  │  │                            domain logic: labels, states, predicates) and its screens
 │  │  │  ├─ auth/               ← session provider, sign in/up, password reset
@@ -176,7 +178,14 @@ named below hold them.
 - **One layer retries.** The Supabase client retries reads that can't reach the server; the query client doesn't
   repeat that (`lib/queryClient.ts`), and moves are never retried.
 - **Money typed by a person is read strictly.** A comma is a thousands separator only between groups of three
-  digits; anything else ("299,99") is asked again rather than guessed (`lib/money.ts`).
+  digits; anything else ("299,99", "0,500") is asked again rather than guessed (`lib/money.ts`).
+- **What's typed or opened for one thing never follows the person to another.** React Router keeps a page on
+  show when only the id in its address changes (a notification pressed from another deal's page, Back and
+  Forward), and a box that stays on screen keeps its text. So a page about one offer, deal or creator starts over
+  for each one and for each seat (`app/startOver.tsx`, set in `routes.tsx`), and an unsent message is kept with
+  its conversation, not in the box (`lib/drafts.ts`). New state on such a page needs nothing extra; a new page
+  with an id in its address needs its `about` in `routes.tsx` (`app/routes.test.tsx` fails until it has one, or
+  a reason not to).
 
 ## 4. Database schema
 
@@ -381,7 +390,8 @@ switches to it when pressed.
 - If Realtime can't connect, the screens on show refetch every 5 seconds until it's back: the kinds Realtime would
   have refreshed (`LIVE_SCOPES`), not the creator directory or the account's seats. A refresh still on its way is
   left to land (on a slow connection one can outlast a tick), and a screen that couldn't load keeps its error and
-  its "try again" instead of flickering back to a spinner.
+  its "try again" instead of flickering back to a spinner. When Realtime connects after that (back from a drop, or
+  late on a slow start), the screens on show refetch once more: Realtime only tells of changes from then on.
 - The notification bell checks every 30 seconds as a safety net. When a newer notification turns up, it refreshes
   the screens on show that haven't refreshed since it arrived, so a move that Realtime already delivered isn't
   fetched twice. The app also refetches when the tab comes back into view.
@@ -437,8 +447,9 @@ brand API, admin tools.
   database's own functions), deliverables validation, error messages, time formatting and the shared clock, the
   cache keys and what each change affects (Realtime and moves alike), the deal model, the to-do kinds, activity
   lines, proof file names, offer turns, and the deliverables editor. They also hold the rules that came out of bugs:
-  reading typed money, which failures are retried, the fallback refresh, the undo window and its countdown on
-  clocks that are off, whose a deal is, the deal page under a failed refresh, the message box, dialog focus, and
+  reading typed money, which failures are retried, the fallback refresh and the catch-up when Realtime connects,
+  the undo window and its countdown on clocks that are off, whose a deal is, the deal page under a failed refresh,
+  the message box and its text per conversation, pages that start over for each offer or deal, dialog focus, and
   brand web names.
 - **App end to end** (Playwright) runs on desktop and phone against the Supabase CLI stack with the migrations and
   seed. Two new people in two browsers:
@@ -451,8 +462,9 @@ brand API, admin tools.
   twice with one email, a wrong password, switching seats, and the public pages. `regressions.spec.ts` replays
   each bug that was fixed: a link opened from the wrong seat, a "review proof" link on a long deal, dashboards when
   a request fails, changing the creator on a new offer, brand names of any length or script, broken links, typing
-  into a dialog, "seen" on a message nobody looked at, and a package repriced mid-booking. The deal flow approves
-  from a browser whose clock runs half a minute fast.
+  into a dialog, "seen" on a message nobody looked at, a package repriced mid-booking, a message typed for one
+  conversation and looked for in another, and a sheet left open when Back leads to another offer. The deal flow
+  approves from a browser whose clock runs half a minute fast.
 - **CI** (`.github/workflows/app.yml`) runs on every push and pull request:
   1. typecheck, lint, unit tests, build;
   2. e2e (desktop and phone, side by side);

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryObserver } from '@tanstack/react-query';
 
-// a Realtime that never connects: the app falls back to refreshing what's on show on a timer
+// a Realtime that connects when the test says so: until then the app refreshes what's on show on a timer
 let report: (status: string) => void = () => {};
 vi.mock('./supabase', () => {
   const channel = {
@@ -73,14 +73,46 @@ describe('refreshing on a timer while Realtime is down', () => {
     expect(list).toHaveBeenCalledTimes(4);
     expect(deals.getCurrentResult()).toMatchObject({ data: 'deals', isLoadingError: false });
 
-    // Realtime is back: everything on show is asked for again, the screen that couldn't load included
-    report('SUBSCRIBED');
-    report('CHANNEL_ERROR');
+    // Realtime connects at last: everything on show is asked for again, the screen that couldn't load included
     report('SUBSCRIBED');
     await vi.advanceTimersByTimeAsync(10);
     expect(neverLoaded).toHaveBeenCalledTimes(2);
+    expect(list).toHaveBeenCalledTimes(5);
     stop();
     stops.forEach((s) => s());
+    client.clear();
+  });
+
+  it('catches up when Realtime connects after a slow start, and not after a clean one', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const deal = vi.fn(() => Promise.resolve('deal'));
+    const stopWatching = new QueryObserver(client, { queryKey: ['deal', 'd1'], queryFn: deal }).subscribe(() => {});
+    await vi.advanceTimersByTimeAsync(10);
+
+    // a clean start: connected before the fallback was needed, nothing to catch up on
+    let stop = startRealtime('user-1', client, { pollMs: 5000, connectTimeoutMs: 6000 });
+    await vi.advanceTimersByTimeAsync(800);
+    report('SUBSCRIBED');
+    await vi.advanceTimersByTimeAsync(10);
+    expect(liveState.get()).toBe('live');
+    expect(deal).toHaveBeenCalledTimes(1);
+    stop();
+
+    // a slow start: the fallback refreshes on its timer until Realtime is there
+    stop = startRealtime('user-1', client, { pollMs: 5000, connectTimeoutMs: 6000 });
+    await vi.advanceTimersByTimeAsync(6000 + 5000 + 100); // the wait for Realtime, then the fallback's first tick
+    expect(liveState.get()).toBe('polling');
+    expect(deal).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(4000); // four seconds after that tick, a change the tick was too early for...
+    report('SUBSCRIBED'); // ...and Realtime, which only tells of changes from now on
+    await vi.advanceTimersByTimeAsync(10);
+    // it used to stop the timer and ask nothing: whatever changed since the last tick stayed unseen
+    expect(deal).toHaveBeenCalledTimes(3);
+    expect(liveState.get()).toBe('live');
+    await vi.advanceTimersByTimeAsync(20_000); // and the timer has stopped
+    expect(deal).toHaveBeenCalledTimes(3);
+    stop();
+    stopWatching();
     client.clear();
   });
 

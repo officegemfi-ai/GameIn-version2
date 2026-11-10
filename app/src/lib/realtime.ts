@@ -5,7 +5,7 @@ import { supabase } from './supabase';
 // Following the database. One Realtime channel per signed-in person listens to the tables the database publishes
 // (row-level security decides which rows each person hears about). Each changed row marks the queries it affects as
 // stale, and only the screens on show refetch. If Realtime can't connect, the screens on show refetch every few
-// seconds until it's back.
+// seconds until it's back; when it connects after that, they refetch once more to catch up.
 
 export const WATCHED_TABLES = [
   'offers', 'offer_versions', 'deals', 'milestones', 'deliverables', 'proofs', 'releases', 'renewals', 'ratings',
@@ -106,7 +106,7 @@ export function startRealtime(userId: string, queryClient: QueryClient, options:
   // what Realtime would have refreshed (offers, deals, money, messages...), not the directory or the account's seats
   const liveKinds = new Set(LIVE_SCOPES.map((s) => s[0]));
   const isLive = (q: Query) => liveKinds.has(q.queryKey[0]);
-  // back after a drop: a refresh already on its way may have left before the change it missed, so it starts over
+  // Realtime is (back) on: a refresh already on its way may have left before the change it missed, so it starts over
   const refetchActive = () => void queryClient.invalidateQueries({ refetchType: 'active', predicate: isLive });
   // A tick while Realtime is down. Nothing is known to have changed, so:
   //   * a refresh still on its way is left to land (starting it over every tick meant that on a connection slower
@@ -142,9 +142,13 @@ export function startRealtime(userId: string, queryClient: QueryClient, options:
   channel.subscribe((status) => {
     if (stopped) return;
     if (status === 'SUBSCRIBED') {
+      // Realtime tells of changes from now on, not of what it missed. That is caught up on here: after a drop, and
+      // after a slow start that the fallback covered meanwhile (its last tick can be seconds old, and it leaves the
+      // screens that couldn't load alone).
+      const catchUp = subscribedBefore || poll !== undefined;
       stopPolling();
       setState('live');
-      if (subscribedBefore) refetchActive(); // back after a drop: catch up on what changed meanwhile
+      if (catchUp) refetchActive();
       subscribedBefore = true;
     } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
       startPolling();
