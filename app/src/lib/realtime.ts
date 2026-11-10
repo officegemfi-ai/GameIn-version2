@@ -1,16 +1,24 @@
 import type { Query, QueryClient, QueryKey } from '@tanstack/react-query';
-import { affected, LIVE_SCOPES, scopes } from './keys';
+import { affected, isTotal, LIVE_SCOPES, scopes } from './keys';
 import { supabase } from './supabase';
 
-// Following the database. One Realtime channel per signed-in person listens to the tables the database publishes
-// (row-level security decides which rows each person hears about). Each changed row marks the queries it affects as
-// stale, and only the screens on show refetch. If Realtime can't connect, the screens on show refetch every few
-// seconds until it's back; when it connects after that, they refetch once more to catch up.
-
-export const WATCHED_TABLES = [
-  'offers', 'offer_versions', 'deals', 'milestones', 'deliverables', 'proofs', 'releases', 'renewals', 'ratings',
-  'messages', 'conversation_reads', 'events', 'notifications', 'payouts', 'payments',
-] as const;
+// Following the database. One Realtime channel per signed-in person listens to four tables (row-level security
+// decides which rows each person hears about). Each new row marks the queries it affects as stale, and only the
+// screens on show refetch. If Realtime can't connect, the screens on show refetch every few seconds until it's back;
+// when it connects after that, they refetch once more to catch up.
+//
+// How often. The first change refreshes the screen at once. When changes keep arriving (a busy brand's team, a
+// lively conversation) a screen refreshes at most once a second, and the totals (badge counts, money across every
+// deal: the reads whose cost grows with the account) at most every five seconds. Without that, every change from
+// anyone became a round of requests from every open tab: the busier an account, the more it asked, without limit.
+//
+// Why four. Every move on an offer, a deal or money writes one row to the event log, naming the offer or deal it was
+// about, in the same transaction as the rows it changed: that one row says which screens to refresh. The tables
+// behind it used to be listened to one by one (fifteen subscriptions a person), and Realtime checks every changed row
+// against every listener's access: one release changed seven rows, so it cost seven checks per person online where
+// one says the same. Messages, read marks and notifications don't go through the event log, so they are listened to
+// directly.
+export const WATCHED_TABLES = ['events', 'messages', 'conversation_reads', 'notifications'] as const;
 
 type RowLike = Record<string, unknown> | null | undefined;
 
@@ -37,8 +45,19 @@ export function keysFor(table: string, row: RowLike): QueryKey[] {
     case 'messages':
     case 'conversation_reads':
       return affected.thread(id('conversation_id'));
-    case 'events':
-      return [scopes.thread];
+    case 'events': {
+      // a line in the pair's conversation (the first one opens it), and whatever it was about
+      const offer = id('offer_id');
+      const deal = id('deal_id');
+      const about: QueryKey[] = [scopes.thread, scopes.conversations];
+      // not a whole row (a delete carries none): anything may have changed
+      if (!row || typeof row.kind !== 'string') return [...about, ...affected.offer(null), ...affected.deal(null)];
+      if (offer) about.push(...affected.offer(offer));
+      if (deal) about.push(...affected.deal(deal));
+      // money that belongs to no deal: a payout asked for, paid or failed
+      if (!offer && !deal) about.push(scopes.wallet);
+      return about;
+    }
     case 'notifications':
       return [scopes.notifications];
     default:
@@ -80,28 +99,55 @@ export interface RealtimeOptions {
   pollMs?: number;
   /** How long to wait for Realtime before falling back to refetching. */
   connectTimeoutMs?: number;
+  /** How long changes are gathered before the screens refresh: one move changes several rows at once. */
+  settleMs?: number;
+  /** The least time between two refreshes of the screens on show, while changes keep arriving. */
+  gapMs?: number;
+  /** The same for the totals (TOTALS in lib/keys.ts). */
+  totalsGapMs?: number;
+}
+
+/**
+ * Gathers the keys changes affect and marks them stale together: `settleMs` after the first change, then no more
+ * often than every `gapMs` while changes keep coming. Nothing is dropped: what arrives between two refreshes waits
+ * for the next one.
+ */
+function gatherer(queryClient: QueryClient, settleMs: number, gapMs: number) {
+  const pending = new Map<string, QueryKey>();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let lastAt = Number.NEGATIVE_INFINITY;
+  const flush = () => {
+    timer = undefined;
+    lastAt = Date.now();
+    for (const queryKey of pending.values()) void queryClient.invalidateQueries({ queryKey });
+    pending.clear();
+  };
+  return {
+    add(key: QueryKey) {
+      pending.set(JSON.stringify(key), key);
+      timer ??= setTimeout(flush, Math.max(settleMs, lastAt + gapMs - Date.now()));
+    },
+    stop() {
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      pending.clear();
+    },
+  };
 }
 
 let starts = 0;
 
 /** Starts following the database for one person; returns the function that stops it. */
 export function startRealtime(userId: string, queryClient: QueryClient, options: RealtimeOptions = {}): () => void {
-  const { pollMs = 5000, connectTimeoutMs = 6000 } = options;
-  const pending = new Map<string, QueryKey>();
-  let flushTimer: ReturnType<typeof setTimeout> | undefined;
+  const { pollMs = 5000, connectTimeoutMs = 6000, settleMs = 120, gapMs = 1000, totalsGapMs = 5000 } = options;
   let poll: ReturnType<typeof setInterval> | undefined;
   let subscribedBefore = false;
   let stopped = false; // removing the channel reports CLOSED: that mustn't start polling for someone signed out
 
-  // a move changes several rows at once: their keys are gathered for a moment and invalidated together
-  const flush = () => {
-    flushTimer = undefined;
-    for (const queryKey of pending.values()) void queryClient.invalidateQueries({ queryKey });
-    pending.clear();
-  };
+  const screens = gatherer(queryClient, settleMs, gapMs);
+  const totals = gatherer(queryClient, settleMs, totalsGapMs);
   const queue = (list: QueryKey[]) => {
-    for (const k of list) pending.set(JSON.stringify(k), k);
-    flushTimer ??= setTimeout(flush, 120);
+    for (const k of list) (isTotal(k) ? totals : screens).add(k);
   };
   // what Realtime would have refreshed (offers, deals, money, messages...), not the directory or the account's seats
   const liveKinds = new Set(LIVE_SCOPES.map((s) => s[0]));
@@ -158,7 +204,8 @@ export function startRealtime(userId: string, queryClient: QueryClient, options:
   return () => {
     stopped = true;
     clearTimeout(fallback);
-    if (flushTimer) clearTimeout(flushTimer);
+    screens.stop();
+    totals.stop();
     stopPolling();
     void supabase.removeChannel(channel);
     setState('off');

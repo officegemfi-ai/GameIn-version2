@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { Button, Card, Empty, HexAvatar, Icon, Loading, QueryError, TimeAgo } from '@/components/ui';
+import { Button, Card, Empty, HexAvatar, Icon, Loading, QueryError, ShowMore, TimeAgo } from '@/components/ui';
 import { restoreDraft, useDraft } from '@/lib/drafts';
 import { keys } from '@/lib/keys';
+import { loadedRows, type MoreToShow } from '@/lib/paging';
 import { messageTime } from '@/lib/time';
 import { otherSide, type Side } from '@/lib/types';
 import { usePageVisible } from '@/lib/usePageVisible';
@@ -11,13 +12,13 @@ import { OtherSeat } from '@/features/seats/OtherSeat';
 import { isParty } from '@/features/seats/party';
 import { useSeat } from '@/features/seats/SeatProvider';
 import { describeEvent } from '@/features/notifications/describe';
-import { draftPlace, isUnread, markRead, newestLineKey, readSeq, useConversations, useSendMessage, useThread, type ConversationListRow, type Thread } from './api';
+import { draftPlace, isUnread, markRead, newestLineKey, readSeq, THREAD_LINES, useConversations, useSendMessage, useThread, type ConversationListRow, type Thread } from './api';
 
 function otherName(c: Pick<ConversationListRow, 'brand' | 'creator'>, side: Side): string {
   return side === 'brand' ? c.creator?.display_name ?? 'Creator' : c.brand?.name ?? 'Brand';
 }
 
-function ConversationList({ rows, activeId, side }: { rows: ConversationListRow[]; activeId?: string; side: Side }) {
+function ConversationList({ rows, more, activeId, side }: { rows: ConversationListRow[]; more: MoreToShow; activeId?: string; side: Side }) {
   if (rows.length === 0) {
     return <Empty title="No conversations yet">A conversation starts with an offer or a message from a creator’s page.</Empty>;
   }
@@ -37,24 +38,43 @@ function ConversationList({ rows, activeId, side }: { rows: ConversationListRow[
           </Link>
         );
       })}
+      <ShowMore list={more} />
     </nav>
   );
 }
 
-function Timeline({ thread, side }: { thread: Thread; side: Side }) {
+function Timeline({ thread, side, onEarlier, loadingEarlier }: { thread: Thread; side: Side; onEarlier: () => void; loadingEarlier: boolean }) {
   const c = thread.conversation;
   const names = { brand: c.brand?.name ?? 'The brand', creator: c.creator?.display_name ?? 'The creator' };
+  const box = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
   // follow the newest line. Keyed on the line itself, not on how many there are: a thread shows its last 200, so
   // once it's that long a new line pushes an old one out and the count never changes again
   const newestKey = newestLineKey(thread.timeline);
   useEffect(() => end.current?.scrollIntoView?.({ block: 'end' }), [newestKey]);
+  // Earlier lines arrive above what's being read. The line that was at the top stays where it was: the distance to
+  // the bottom is noted when they're asked for and put back when they're in.
+  const fromBottom = useRef<number | null>(null);
+  const oldestKey = thread.timeline[0] ? `${thread.timeline[0].kind}:${thread.timeline[0].ref}` : '';
+  useLayoutEffect(() => {
+    if (fromBottom.current !== null && box.current) box.current.scrollTop = box.current.scrollHeight - fromBottom.current;
+    fromBottom.current = null;
+  }, [oldestKey]);
+  const showEarlier = () => {
+    if (box.current) fromBottom.current = box.current.scrollHeight - box.current.scrollTop;
+    onEarlier();
+  };
   const lastMine = [...thread.timeline].reverse().find((r) => r.kind === 'message' && r.side === side);
   const lastAny = [...thread.timeline].reverse().find((r) => r.kind === 'message');
   const seen = lastMine && lastAny === lastMine && readSeq(c, otherSide(side)) >= c.last_message_seq;
   return (
-    <div className="g-thread" aria-live="polite">
+    <div className="g-thread" aria-live="polite" ref={box}>
       {thread.timeline.length === 0 ? <p className="g-muted g-small" style={{ textAlign: 'center' }}>Say hello.</p> : null}
+      {thread.earlier ? (
+        <div className="g-showmore">
+          <Button size="sm" variant="ghost" loading={loadingEarlier} onClick={showEarlier}>show earlier</Button>
+        </div>
+      ) : null}
       {thread.timeline.map((r) =>
         r.kind === 'message' ? (
           <div key={'m' + r.ref} className={`g-bubble${r.side === side ? ' is-mine' : ''}`}>
@@ -134,9 +154,12 @@ export default function MessagesPage() {
   const { id } = useParams();
   const seat = useSeat();
   const list = useConversations(seat);
-  const thread = useThread(id);
+  // a thread opens on its newest lines; "show earlier" asks for more of this conversation, and another starts afresh
+  const [asked, setAsked] = useState<{ id?: string; lines: number }>({ lines: THREAD_LINES });
+  const lines = asked.id === id ? asked.lines : THREAD_LINES;
+  const thread = useThread(id, lines);
   const queryClient = useQueryClient();
-  const rows = useMemo(() => list.data ?? [], [list.data]);
+  const rows = loadedRows(list.data);
 
   // Reading a thread marks it read for this seat, up to the last message shown. "Reading" means the seat is one of
   // the thread's two parties and the page is actually being looked at: a thread left open in a background tab must
@@ -154,6 +177,7 @@ export default function MessagesPage() {
       () => {
         void queryClient.invalidateQueries({ queryKey: keys.conversations(seat) });
         void queryClient.invalidateQueries({ queryKey: keys.todos(seat) });
+        void queryClient.invalidateQueries({ queryKey: keys.todoCounts(seat) });
       },
       () => {
         // not marked this time (the connection, usually): the thread stays unread and the next look tries again
@@ -168,7 +192,7 @@ export default function MessagesPage() {
           <div className="g-messages__head">
             <h1>Messages</h1>
           </div>
-          {list.isPending ? <Loading /> : list.isLoadingError ? <QueryError query={list} /> : <ConversationList rows={rows} activeId={id} side={seat.side} />}
+          {list.isPending ? <Loading /> : list.isLoadingError ? <QueryError query={list} /> : <ConversationList rows={rows} more={list} activeId={id} side={seat.side} />}
         </Card>
         <Card flush className="g-messages__thread">
           {!id ? (
@@ -195,7 +219,7 @@ export default function MessagesPage() {
                   ) : null}
                 </div>
               </div>
-              <Timeline thread={thread.data} side={seat.side} />
+              <Timeline thread={thread.data} side={seat.side} onEarlier={() => setAsked({ id, lines: lines + THREAD_LINES })} loadingEarlier={thread.isPlaceholderData} />
               {/* a box of its own per conversation and side: one that is still sending doesn't hold up the next */}
               <Composer key={draftPlace(thread.data.conversation.id, seat.side)} thread={thread.data} side={seat.side} />
             </>

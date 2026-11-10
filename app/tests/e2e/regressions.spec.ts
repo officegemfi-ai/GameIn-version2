@@ -79,16 +79,19 @@ test('a dashboard says when it couldn’t load, instead of showing $0.00 and "no
 });
 
 test('a brand whose deals couldn’t load isn’t told to book its first creator', async ({ page }) => {
-  let asked = 0;
+  // the dashboard asks two things of the deals: the ones under way, and the ones still to fund
+  const asked = new Map<string, number>();
   await page.route('**/rest/v1/deals?*', (route) => {
-    asked += 1;
+    const url = route.request().url();
+    asked.set(url, (asked.get(url) ?? 0) + 1);
     return route.abort();
   });
   await signIn(page, 'manager@hypercore.test', DEMO_PASSWORD);
   await expect(page).toHaveURL(/\/dashboard$/);
   // the error shows once the data client's own retries are spent (seven seconds), not after a second round of them
   await expect(page.getByText('Can’t reach GameIn. Check your connection and try again.')).toBeVisible({ timeout: 15_000 });
-  expect(asked).toBeLessThanOrEqual(4);
+  expect(asked.size).toBeGreaterThan(0);
+  for (const times of asked.values()) expect(times).toBeLessThanOrEqual(4);
   await expect(page.getByText('Book your first creator')).toHaveCount(0);
   await expect(page.getByText('No active deals.')).toHaveCount(0);
 });

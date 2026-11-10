@@ -82,12 +82,20 @@ export const todoTasks = (rows: TodoRow[] | undefined): Task[] => (rows ?? []).f
 
 export type TodoCounts = Record<TodoGroup, number>;
 
-/** How many to-dos each navigation badge shows. */
-export function countTodos(rows: TodoRow[] | undefined): TodoCounts {
+/** What the database counted for a seat (todo_counts): how many to-dos of each kind. */
+export type KindCount = { kind: string; n: number };
+
+/** How many to-dos each navigation badge shows; a kind this app doesn't know yet counts toward none. */
+export function badgeCounts(counted: readonly KindCount[] | undefined): TodoCounts {
   const c: TodoCounts = { offers: 0, proofs: 0, messages: 0, renewals: 0 };
-  for (const r of rows ?? []) {
-    const kind = KINDS[r.kind ?? ''];
-    if (kind) c[kind.group]++;
+  for (const r of counted ?? []) {
+    const kind = KINDS[r.kind];
+    if (kind) c[kind.group] += r.n;
   }
   return c;
+}
+
+/** How many to-dos of the kinds this app knows wait on a seat, in all. */
+export function totalWaiting(counted: readonly KindCount[] | undefined): number {
+  return Object.values(badgeCounts(counted)).reduce((a, b) => a + b, 0);
 }

@@ -75,7 +75,20 @@ When both tabs change the same thing at once, the merge settles it before anythi
 
 - races: two connections acting at the same instant, lined up exactly (one holds its locks while the other is seen waiting): two approvals, two releases and the scheduler, undo against release, two fundings of one milestone, accept against withdraw, a renewal answered twice, a bank clearing against a failure, two payouts of the whole balance, and dozens of connections at once;
 - random walks: hundreds of random moves from both seats, many deliberately wrong, with the audit after every move and every refusal checked to be a clean one;
-- the demo seed against the prototype's starting numbers, to the cent.
+- the demo seed against the prototype's starting numbers, to the cent;
+- what the scale migration records or counts against the rows themselves (`10-scale.test.mjs`, and after every
+  stretch of the random walks): the record of unread messages against the messages and read marks, the badge counts
+  against the to-do list, search against the directory. Also there: opening a thread still doesn't wait for a
+  message that is being sent, and the checks made when a move commits see the rows they check whoever commits (a
+  ledger posting with nothing to balance it is refused for everyone, not only for staff).
+
+### At scale
+
+The tests above run on a database with a handful of rows, where a request that reads a whole table is as fast as
+one that follows an index. `db/bench` is for that: it grows a database to 200,000 creators and a million offers,
+sends it every screen's requests the way the app does, and has the database account for each one
+([how to run it](db/bench/README.md), [the latest results](db/bench/RESULTS.md)). Run it before and after anything
+that changes how the database is read. [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) is written from its numbers.
 
 GitHub runs them on every push and pull request (`.github/workflows/database.yml`) on Postgres 15 and 17, and on Supabase's own Postgres after loading the migrations and the seed with the Supabase CLI.
 
@@ -123,7 +136,9 @@ phone job side by side.
 The new app has its own tests (`app/README.md` says how to run them):
 
 - unit tests (Vitest): the fee formulas against values computed by the database's own functions, deliverables
-  validation, error messages, times, the Realtime key map, activity lines, and the deliverables editor;
+  validation, error messages, times, the Realtime key map, activity lines, and the deliverables editor; and what
+  the app does under load: lists a page at a time, how often screens refresh when changes come in a burst, and
+  that a read the database stopped at its time limit isn't asked for again by itself;
 - end to end (Playwright, `app/tests/e2e/`), on a desktop and a phone against the Supabase CLI's stack. Two new
   accounts make a whole deal: a package, a booking, a counter that arrives live, acceptance, escrow funded by card
   with the 5% fee, proof as a link and as a file, approval, undo, approval again, release, both ratings, messages
@@ -134,7 +149,10 @@ The new app has its own tests (`app/README.md` says how to run them):
   link on a long deal, a dashboard when a request fails, the undo window on a device whose clock is off, a message
   typed while the last one is sending, "seen" on a message nobody looked at, "299,99" typed as a price, a brand name
   the database can't make a web name from, a package repriced while it's being booked, a message typed for one brand
-  turning up in another brand's box, a decline or a rating written for one offer or deal landing on another.
+  turning up in another brand's box, a decline or a rating written for one offer or deal landing on another;
+- long lists (`app/tests/e2e/lists.spec.ts`): a seat with 27 offers, two more than a page. The pages hold every
+  offer once, the counts in the navigation, on the tab and on the dashboard are the database's, and answering one
+  moves it to the right tab for both sides.
 
 GitHub runs them on every push and pull request (`.github/workflows/app.yml`), then publishes the app under `/app/` on
 `main` once Pages is set to deploy from GitHub Actions.

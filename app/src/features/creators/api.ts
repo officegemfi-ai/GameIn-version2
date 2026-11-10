@@ -1,7 +1,8 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useAction } from '@/app/useAction';
 import { must, one } from '@/lib/db';
 import { affected, keys } from '@/lib/keys';
+import { pageRange, usePagedList } from '@/lib/paging';
 import { supabase } from '@/lib/supabase';
 import type { Json, Platform } from '@/lib/types';
 
@@ -10,37 +11,37 @@ const CARD = 'id, handle, display_name, bio, avatar_url, platforms, packages(id,
 const PROFILE = 'id, handle, display_name, bio, avatar_url, platforms, created_at, packages(*)';
 const PAGE_SIZE = 24;
 
-/** Search text that's safe inside a PostgREST filter: letters, digits, spaces, dots, dashes, underscores. */
+/** Search text as it's sent: letters, digits, spaces, dots, dashes, underscores (what names and handles are made of). */
 export function cleanSearch(text: string): string {
   return text.replace(/[^\p{L}\p{N} ._-]/gu, '').trim().slice(0, 60);
 }
 
-async function fetchCreatorsPage(search: string, page: number) {
-  let q = supabase
-    .from('creators')
-    .select(CARD)
-    .not('handle', 'like', 'deleted-%')
-    // by name, then by id: two creators with the same name must keep one order from page to page, or "show more"
-    // repeats one of them and skips the other
-    .order('display_name')
-    .order('id')
-    .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
-  if (search) q = q.or(`display_name.ilike.%${search}%,handle.ilike.%${search}%`);
-  return must(q);
+/** The directory in name order, a page at a time; then by id, so two creators with one name keep one order. */
+async function fetchDirectoryPage(page: number) {
+  const [from, to] = pageRange(page, PAGE_SIZE);
+  return must(supabase.from('creators').select(CARD).not('handle', 'like', 'deleted-%').order('display_name').order('id').range(from, to));
+}
+export type CreatorCardRow = Awaited<ReturnType<typeof fetchDirectoryPage>>[number];
+
+/**
+ * A search of the directory, in the same order and the same pages. Its own request (search_creators), because finding
+ * the matches is a different job from reading a list in order: asked as "the directory, filtered", the database
+ * walked the whole directory looking for 24 matches whenever the name was a rare one.
+ */
+async function fetchSearchPage(search: string, page: number): Promise<CreatorCardRow[]> {
+  return must(
+    supabase
+      .rpc('search_creators', { p_q: search, p_limit: PAGE_SIZE, p_offset: page * PAGE_SIZE }, { get: true })
+      .select(CARD)
+      .order('display_name')
+      .order('id'),
+  );
 }
 
-export type CreatorCardRow = Awaited<ReturnType<typeof fetchCreatorsPage>>[number];
-
-/** The creator directory, 24 at a time (public: anyone can browse). */
+/** The creator directory, or a search of it, 24 at a time. */
 export function useCreators(search: string, { enabled = true }: { enabled?: boolean } = {}) {
   const s = cleanSearch(search);
-  return useInfiniteQuery({
-    queryKey: keys.creators(s),
-    enabled,
-    queryFn: ({ pageParam }) => fetchCreatorsPage(s, pageParam),
-    initialPageParam: 0,
-    getNextPageParam: (last, all) => (last.length === PAGE_SIZE ? all.length : undefined),
-  });
+  return usePagedList(keys.creators(s), (page) => (s ? fetchSearchPage(s, page) : fetchDirectoryPage(page)), { enabled, size: PAGE_SIZE });
 }
 
 /**

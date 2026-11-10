@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { Icon, TimeAgo } from '@/components/ui';
-import { keys } from '@/lib/keys';
+import { isTotal, keys } from '@/lib/keys';
 import { lastNotificationAt } from '@/lib/realtime';
 import { useUser } from '@/features/auth/AuthProvider';
 import { isParty, notifiedSeat } from '@/features/seats/party';
@@ -45,8 +45,14 @@ export function NotificationBell() {
     if (!loaded) return;
     if (seen.current !== null && newest > seen.current) {
       const arrived = lastNotificationAt();
-      const since = Date.now() - arrived < CAUGHT_UP_MS ? arrived : Date.now();
-      void queryClient.invalidateQueries({ refetchType: 'active', predicate: (q) => q.state.fetchStatus !== 'fetching' && q.state.dataUpdatedAt < since });
+      const overRealtime = Date.now() - arrived < CAUGHT_UP_MS;
+      const since = overRealtime ? arrived : Date.now();
+      void queryClient.invalidateQueries({
+        refetchType: 'active',
+        // The totals (badge counts, money across every deal) are left to Realtime's own pace when it brought the news:
+        // they refresh every few seconds while changes keep arriving, and asking for them here as well would undo that.
+        predicate: (q) => q.state.fetchStatus !== 'fetching' && q.state.dataUpdatedAt < since && !(overRealtime && isTotal(q.queryKey)),
+      });
     }
     seen.current = Math.max(seen.current ?? 0, newest);
   }, [loaded, newest, queryClient]);

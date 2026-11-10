@@ -1,7 +1,8 @@
 import { Link } from 'react-router';
-import { Badge, Button, Card, Empty, Loading, Notice, QueryError, Skeleton, Stat } from '@/components/ui';
+import { Badge, Button, Card, Empty, Loading, Notice, QueryError, ShowMore, Skeleton, Stat } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { formatCents } from '@/lib/money';
+import { loadedRows } from '@/lib/paging';
 import { formatDate } from '@/lib/time';
 import { useSeat } from '@/features/seats/SeatProvider';
 import { useSimulatePayment } from '@/features/deals/api';
@@ -13,6 +14,7 @@ export default function PaymentsPage() {
   const brandId = seat.side === 'brand' ? seat.id : null;
   const money = useBrandMoney(brandId);
   const payments = useBrandPayments(brandId);
+  const rows = loadedRows(payments.data);
   const simulate = useSimulatePayment();
 
   if (!brandId) {
@@ -50,7 +52,7 @@ export default function PaymentsPage() {
           <Loading />
         ) : payments.isLoadingError ? (
           <QueryError query={payments} />
-        ) : payments.data.length === 0 ? (
+        ) : rows.length === 0 ? (
           <Empty title="No payments yet">You fund escrow from a deal once the creator accepts.</Empty>
         ) : (
           <div className="g-scrollx">
@@ -65,7 +67,7 @@ export default function PaymentsPage() {
                 </tr>
               </thead>
               <tbody>
-                {payments.data.map((p) => {
+                {rows.map((p) => {
                   const clearing = p.status === 'processing' || p.status === 'awaiting_wire';
                   const st = paymentStatus(p.status);
                   return (
@@ -95,6 +97,7 @@ export default function PaymentsPage() {
                 })}
               </tbody>
             </table>
+            <ShowMore list={payments} />
           </div>
         )}
       </Card>

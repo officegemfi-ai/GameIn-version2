@@ -1,6 +1,7 @@
 // What deals, milestones, deliverables and payments mean on screen: their labels and colours, and the questions the
 // screens ask of a deal. Pure functions over the database's rows (no fetching here), tested in model.test.ts.
 import type { Tone } from '@/components/ui';
+import type { DealTab } from '@/lib/keys';
 import { formatCents } from '@/lib/money';
 import type { DealMoneyRow, DealStatus, DeliverableStatus, MilestoneStatus, PaymentStatus, ProofRow, Side } from '@/lib/types';
 
@@ -44,11 +45,14 @@ export function deliverableStatus(status: DeliverableStatus, inEscrow: boolean):
   }
 }
 
+/** The stored states behind each tab of the deals page: still running, or over. Every state is in exactly one. */
+export const DEAL_TABS = { active: ['awaiting_funding', 'in_progress'], done: ['completed', 'cancelled'] } as const satisfies Record<DealTab, readonly DealStatus[]>;
+
 /** Still running: waiting for money, or work under way. */
-export const isActiveDeal = (d: { status: DealStatus }): boolean => d.status === 'awaiting_funding' || d.status === 'in_progress';
+export const isActiveDeal = (d: { status: DealStatus }): boolean => (DEAL_TABS.active as readonly DealStatus[]).includes(d.status);
 
 /** Over: everything released, or called off. */
-export const isFinishedDeal = (d: { status: DealStatus }): boolean => d.status === 'completed' || d.status === 'cancelled';
+export const isFinishedDeal = (d: { status: DealStatus }): boolean => (DEAL_TABS.done as readonly DealStatus[]).includes(d.status);
 
 /** The brand still has money to put in escrow for it. */
 export const owesFunding = (d: { status: DealStatus; money: Pick<DealMoneyRow, 'not_funded_cents'> | null }): boolean =>

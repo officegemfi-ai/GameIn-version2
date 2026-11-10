@@ -2,28 +2,36 @@ import { useQuery } from '@tanstack/react-query';
 import { useAction } from '@/app/useAction';
 import { itemsToJson } from '@/lib/items';
 import { must, one } from '@/lib/db';
-import { affected, keys, scopes } from '@/lib/keys';
+import { affected, keys, scopes, type OfferTab } from '@/lib/keys';
+import { pageRange, usePagedList } from '@/lib/paging';
 import { OFFER_HOURS, PITCH_HOURS } from '@/lib/rules';
 import { supabase } from '@/lib/supabase';
 import { seatColumn, type Item, type Seat, type Side } from '@/lib/types';
+import { tabState } from './model';
 
 const BOARD = '*, brand:brands(id, name, slug), creator:creators(id, display_name, handle)';
 
-async function fetchOffers(seat: Seat) {
-  return must(
-    supabase
-      .from('offer_board')
-      .select(BOARD)
-      .eq(seatColumn(seat), seat.id)
-      .order('last_version_at', { ascending: false })
-      .limit(200),
-  );
+async function fetchOffersPage(seat: Seat, tab: OfferTab, page: number) {
+  const [from, to] = pageRange(page);
+  const mine = supabase.from('offer_board').select(BOARD).eq(seatColumn(seat), seat.id);
+  // Open or closed is "closed_at is null" or not; whose turn is the stored state. Each tab is read in an order the
+  // database keeps an index in, so a page costs a page however many offers the seat has: the open ones by deadline
+  // (soonest first), the closed ones by when they closed (latest first).
+  const rows =
+    tab === 'closed'
+      ? mine.not('closed_at', 'is', null).order('closed_at', { ascending: false }).order('id', { ascending: false })
+      : mine.is('closed_at', null).eq('raw_status', tabState(tab, seat.side)).order('expires_at').order('id');
+  return must(rows.range(from, to));
 }
-export type OfferListRow = Awaited<ReturnType<typeof fetchOffers>>[number];
+export type OfferListRow = Awaited<ReturnType<typeof fetchOffersPage>>[number];
 
-/** This seat's offers, newest move first (offer_board: latest terms, whose turn it is, expired at once). */
-export function useOffers(seat: Seat) {
-  return useQuery({ queryKey: keys.offers(seat), queryFn: () => fetchOffers(seat) });
+/**
+ * One tab of this seat's offers, a page at a time (offer_board: latest terms, whose turn it is, expired at once).
+ * An offer whose time has just run out stays in its tab, shown as expired, until the database's sweep closes it
+ * within the minute; then it is under "closed".
+ */
+export function useOffers(seat: Seat, tab: OfferTab, options: { enabled?: boolean } = {}) {
+  return usePagedList(keys.offers(seat, tab), (page) => fetchOffersPage(seat, tab, page), options);
 }
 
 async function fetchOffer(id: string) {

@@ -2,16 +2,17 @@ import { Link } from 'react-router';
 import { Badge, ButtonLink, Card, Empty, Icon, Loading, QueryError, Stat } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { formatCents } from '@/lib/money';
+import { loadedRows } from '@/lib/paging';
 import { dueLabel } from '@/lib/time';
 import type { Seat, Side } from '@/lib/types';
 import { useSeat } from '@/features/seats/SeatProvider';
-import { useDeals, type DealListRow } from '@/features/deals/api';
-import { dealHeadline, isActiveDeal, owesFunding } from '@/features/deals/model';
+import { useDeals, useDealsToFund, type DealListRow, type DealToFund } from '@/features/deals/api';
+import { dealHeadline, owesFunding } from '@/features/deals/model';
 import { useMyPackages } from '@/features/packages/api';
 import { useWalletSummary } from '@/features/wallet/api';
 import { useBrandMoney } from '@/features/payments/api';
-import { useReadyDeliverables, useTodos } from './api';
-import { todoTasks, type Task } from './todos';
+import { useReadyDeliverables, useTodoCounts, useTodos } from './api';
+import { todoTasks, totalWaiting, type Task } from './todos';
 
 type ReadyDeliverable = NonNullable<ReturnType<typeof useReadyDeliverables>['data']>[number];
 
@@ -22,20 +23,20 @@ function deliverTask(dl: ReadyDeliverable): Task {
     key: 'd' + dl.id,
     chip: redo ? 'redo' : 'deliver',
     tone: redo ? 'coral' : 'mint',
-    to: `/deals/${dl.deal.id}`,
+    to: `/deals/${dl.deal_id}`,
     amount: dl.amount_cents,
     text: (
       <>
         {redo ? 'Send new proof for ' : 'Deliver '}
         <b className="g-strong">{dl.label}</b>
-        <span className="g-muted"> · {dl.deal.title}{dl.due_on ? `, ${dueLabel(dl.due_on)}` : ''}</span>
+        <span className="g-muted"> · {dl.deal_title}{dl.due_on ? `, ${dueLabel(dl.due_on)}` : ''}</span>
       </>
     ),
   };
 }
 
 /** A deal the brand still has to put money into. */
-function fundTask(d: DealListRow): Task {
+function fundTask(d: DealToFund): Task {
   return {
     key: 'f' + d.id,
     chip: 'fund',
@@ -46,7 +47,7 @@ function fundTask(d: DealListRow): Task {
   };
 }
 
-function TaskList({ tasks, empty }: { tasks: Task[]; empty: string }) {
+function TaskList({ tasks, empty, more }: { tasks: Task[]; empty: string; more: number }) {
   if (tasks.length === 0) return <p className="g-muted">{empty}</p>;
   return (
     <div className="g-list">
@@ -58,12 +59,18 @@ function TaskList({ tasks, empty }: { tasks: Task[]; empty: string }) {
           <Icon name="chevronRight" width={16} height={16} />
         </Link>
       ))}
+      {more > 0 ? (
+        <p className="g-muted g-small g-task__more">
+          and {more.toLocaleString('en-US')} more: see <Link to="/offers">offers</Link>, <Link to="/deals">deals</Link> and <Link to="/messages">messages</Link>
+        </p>
+      ) : null}
     </div>
   );
 }
 
+/** The first few of the seat's running deals (the first page of the deals page's "active" tab: one request for both). */
 function ActiveDeals({ deals, side }: { deals: DealListRow[]; side: Side }) {
-  const active = deals.filter(isActiveDeal).slice(0, 5);
+  const active = deals.slice(0, 5);
   return (
     <Card title="Active deals" actions={<Link className="g-small" to="/deals">see all</Link>}>
       {active.length === 0 ? (
@@ -86,15 +93,23 @@ function ActiveDeals({ deals, side }: { deals: DealListRow[]; side: Side }) {
 }
 
 /** Both dashboards end the same way: what needs this seat, and its deals under way. */
-function NeedsYou({ tasks, empty, deals, side }: { tasks: Task[]; empty: string; deals: DealListRow[]; side: Side }) {
+function NeedsYou({ tasks, empty, more, deals, side }: { tasks: Task[]; empty: string; more: number; deals: DealListRow[]; side: Side }) {
   return (
     <div className="g-grid-2">
       <Card title="Needs you">
-        <TaskList tasks={tasks} empty={empty} />
+        <TaskList tasks={tasks} empty={empty} more={more} />
       </Card>
       <ActiveDeals deals={deals} side={side} />
     </div>
   );
+}
+
+/**
+ * How many more things wait on a seat than its dashboard lists: the database's count (when it has answered) less the
+ * to-dos on show. The dashboard lists the first few; the pages behind the links have them all.
+ */
+function moreWaiting(counted: Parameters<typeof totalWaiting>[0], shown: number): number {
+  return counted ? Math.max(0, totalWaiting(counted) - shown) : 0;
 }
 
 /** What a dashboard waits for before it says anything: one of its requests. */
@@ -126,14 +141,16 @@ function waitFor(needed: Needed[], title: string) {
 
 function CreatorDashboard({ seat }: { seat: Seat }) {
   const todos = useTodos(seat);
+  const counts = useTodoCounts(seat);
   const wallet = useWalletSummary(seat.id);
   const ready = useReadyDeliverables(seat.id);
-  const deals = useDeals(seat);
+  const deals = useDeals(seat, 'active');
   const packages = useMyPackages(seat.id);
   const waiting = waitFor([todos, deals, wallet, ready], `Hi, ${seat.name}`);
   if (waiting) return waiting;
   const w = wallet.data;
-  const tasks = [...todoTasks(todos.data), ...(ready.data ?? []).map(deliverTask)];
+  const waitingOnYou = todoTasks(todos.data);
+  const tasks = [...waitingOnYou, ...(ready.data ?? []).map(deliverTask)];
   return (
     <div className="g-page">
       <PageHeader title={`Hi, ${seat.name}`} subtitle="What needs you, and where your money is." actions={<ButtonLink to="/offers/new" icon="plus">pitch a brand</ButtonLink>} />
@@ -153,20 +170,24 @@ function CreatorDashboard({ seat }: { seat: Seat }) {
           </div>
         </Card>
       ) : null}
-      <NeedsYou tasks={tasks} empty="You’re all caught up." deals={deals.data ?? []} side="creator" />
+      <NeedsYou tasks={tasks} empty="You’re all caught up." more={moreWaiting(counts.data, waitingOnYou.length)} deals={loadedRows(deals.data)} side="creator" />
     </div>
   );
 }
 
 function BrandDashboard({ seat }: { seat: Seat }) {
   const todos = useTodos(seat);
+  const counts = useTodoCounts(seat);
   const money = useBrandMoney(seat.id);
-  const deals = useDeals(seat);
-  const waiting = waitFor([todos, deals, money], seat.name);
+  const deals = useDeals(seat, 'active');
+  const toFund = useDealsToFund(seat.id);
+  const waiting = waitFor([todos, deals, money, toFund], seat.name);
   if (waiting) return waiting;
   const m = money.data;
-  const tasks = [...(deals.data ?? []).filter(owesFunding).map(fundTask), ...todoTasks(todos.data)];
-  const noDeals = (deals.data ?? []).length === 0;
+  const waitingOnYou = todoTasks(todos.data);
+  const tasks = [...(toFund.data ?? []).filter(owesFunding).map(fundTask), ...waitingOnYou];
+  // a brand with any deal at all has money committed to it: the total is zero only before the first one
+  const noDeals = (m?.total_cents ?? 0) === 0;
   return (
     <div className="g-page">
       <PageHeader title={seat.name} subtitle="You’re the brand. Offers, escrow and proof, shared live with each creator." actions={<ButtonLink to="/discover" variant="primary" icon="discover">find a creator</ButtonLink>} />
@@ -183,7 +204,7 @@ function BrandDashboard({ seat }: { seat: Seat }) {
           </Empty>
         </Card>
       ) : null}
-      <NeedsYou tasks={tasks} empty="Nothing waits on you." deals={deals.data ?? []} side="brand" />
+      <NeedsYou tasks={tasks} empty="Nothing waits on you." more={moreWaiting(counts.data, waitingOnYou.length)} deals={loadedRows(deals.data)} side="brand" />
     </div>
   );
 }

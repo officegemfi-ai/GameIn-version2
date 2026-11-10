@@ -5,7 +5,7 @@ import { ItemsEditor } from '@/components/ui/ItemsEditor';
 import { initials } from '@/components/ui/HexAvatar';
 import { proofFileName, proofPath } from '@/lib/storage';
 import type { Item } from '@/lib/types';
-import { offerState } from './offers/model';
+import { offerState, tabState, waitsOn } from './offers/model';
 import { cleanSearch, creatorProfileRow } from './creators/api';
 import { newestLineKey } from './messages/api';
 import { onboardingPath } from './auth/api';
@@ -70,6 +70,22 @@ describe('small helpers', () => {
     expect(offerState({ status: 'sent', waiting_on: 'creator' }, 'brand')).toMatchObject({ yourTurn: false, open: true, label: 'waiting on the creator' });
     expect(offerState({ status: 'expired', waiting_on: null }, 'brand')).toMatchObject({ open: false, label: 'expired' });
     expect(offerState({ status: 'accepted', waiting_on: null }, 'creator')).toMatchObject({ tone: 'mint', open: false });
+  });
+
+  it('asks each open tab for the stored state that waits on the right side, as the database says whose turn it is', () => {
+    // private.waiting_on: a sent offer waits on the creator, a countered one (or a pitch) on the brand
+    expect(waitsOn).toEqual({ creator: 'sent', brand: 'countered' });
+    expect(tabState('yours', 'brand')).toBe('countered');
+    expect(tabState('theirs', 'brand')).toBe('sent');
+    expect(tabState('yours', 'creator')).toBe('sent');
+    expect(tabState('theirs', 'creator')).toBe('countered');
+    // and the row agrees with the tab it was asked for under
+    for (const side of ['brand', 'creator'] as const) {
+      const mine = { status: tabState('yours', side), waiting_on: side };
+      const theirs = { status: tabState('theirs', side), waiting_on: side === 'brand' ? ('creator' as const) : ('brand' as const) };
+      expect(offerState(mine, side)).toMatchObject({ yourTurn: true, open: true });
+      expect(offerState(theirs, side)).toMatchObject({ yourTurn: false, open: true });
+    }
   });
 });
 

@@ -5,17 +5,19 @@ import { keys } from '@/lib/keys';
 import { supabase } from '@/lib/supabase';
 import { cleanSearch } from '@/features/creators/api';
 
-/** Brands by name, for a creator choosing who to pitch (brands are public). */
+const BRAND = 'id, name, slug, verified';
+const BRANDS_SHOWN = 20;
+
+/** Brands by name, for a creator choosing who to pitch: the first few in name order, or the ones a search finds. */
 export function useBrandSearch(search: string, { enabled = true }: { enabled?: boolean } = {}) {
   const s = cleanSearch(search);
   return useQuery({
     queryKey: keys.brands(s),
     enabled,
-    queryFn: () => {
-      let q = supabase.from('brands').select('id, name, slug, verified').order('name').limit(20);
-      if (s) q = q.or(`name.ilike.%${s}%,slug.ilike.%${s}%`);
-      return must(q);
-    },
+    queryFn: () =>
+      s
+        ? must(supabase.rpc('search_brands', { p_q: s, p_limit: BRANDS_SHOWN }, { get: true }).select(BRAND).order('name').order('id'))
+        : must(supabase.from('brands').select(BRAND).order('name').order('id').limit(BRANDS_SHOWN)),
   });
 }
 

@@ -5,8 +5,8 @@ import { liveState } from '@/lib/realtime';
 import type { Side } from '@/lib/types';
 import { signOut } from '@/features/auth/api';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { useTodos } from '@/features/dashboard/api';
-import { countTodos, type TodoCounts } from '@/features/dashboard/todos';
+import { useTodoCounts } from '@/features/dashboard/api';
+import { badgeCounts, type TodoCounts } from '@/features/dashboard/todos';
 import { NotificationBell } from '@/features/notifications/NotificationBell';
 import { useSeat, useSeats } from '@/features/seats/SeatProvider';
 import { SeatSwitcher } from '@/features/seats/SeatSwitcher';
@@ -45,8 +45,7 @@ function LiveDot() {
 /** The signed-in app: top bar, sidebar on a computer, bottom bar on a phone. */
 export function AppShell() {
   const seat = useSeat();
-  const todos = useTodos(seat);
-  const items = navFor(seat.side, countTodos(todos.data));
+  const items = navFor(seat.side, badgeCounts(useTodoCounts(seat).data));
   const bottom = items.slice(0, 4);
   const rest = items.slice(4);
   const [more, setMore] = useState(false);

@@ -45,3 +45,10 @@ export async function one<R extends Response>(request: PromiseLike<R>, what = 'T
   if (data == null) throw Object.assign(new Error(`${what} wasn’t found. It may have been removed, or it isn’t yours to see.`), { status: 404 });
   return data as NonNullable<R['data']>;
 }
+
+/** How many rows a counting request found (`select(…, { count: 'exact', head: true })`: the database counts, no rows travel). */
+export async function counted<R extends Response & { count: number | null }>(request: PromiseLike<R>): Promise<number> {
+  const { count, error, status } = await request;
+  if (error) throw failure(error, status);
+  return count ?? 0;
+}

@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Button, Empty, Icon, QueryError, Skeleton } from '@/components/ui';
+import { Empty, Icon, QueryError, ShowMore, Skeleton } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { loadedRows } from '@/lib/paging';
 import { useDebouncedValue } from '@/lib/useDebouncedValue';
 import { useSeat } from '@/features/seats/SeatProvider';
 import { CreatorCard } from './CreatorCard';
@@ -11,7 +12,7 @@ export default function DiscoverPage() {
   const [text, setText] = useState('');
   const search = useDebouncedValue(text);
   const q = useCreators(search);
-  const creators = q.data?.pages.flat() ?? [];
+  const creators = loadedRows(q.data);
 
   return (
     <div className="g-page">
@@ -37,11 +38,7 @@ export default function DiscoverPage() {
               <CreatorCard key={c.id} creator={c} />
             ))}
           </div>
-          {q.hasNextPage ? (
-            <div className="g-row" style={{ justifyContent: 'center' }}>
-              <Button onClick={() => void q.fetchNextPage()} loading={q.isFetchingNextPage}>show more</Button>
-            </div>
-          ) : null}
+          <ShowMore list={q} />
         </>
       )}
     </div>

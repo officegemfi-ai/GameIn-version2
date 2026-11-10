@@ -109,6 +109,30 @@ function helpers(ctx) {
   });
 }
 
+// --- what stage one of the scaling plan records or counts must say exactly what the rows themselves say ---------------
+// what is unread, worked out the long way: every message the other side hasn't read past
+const UNREAD = `
+  select m.conversation_id, case m.sender_side when 'brand' then 'creator' else 'brand' end as to_side, m.seq
+  from public.messages m
+  left join public.conversation_reads r on r.conversation_id = m.conversation_id and r.side <> m.sender_side
+  where m.seq > coalesce(r.last_read_seq, 0)
+  order by 1, 2, 3`;
+const RECORDED = 'select conversation_id, to_side::text, seq from public.unread_messages order by 1, 2, 3';
+
+/** The rows recorded as unread are exactly the messages the other side hasn't read. */
+export async function assertUnreadInStep(db, when = '') {
+  assert.deepEqual(await db.q(RECORDED), await db.q(UNREAD), `unread messages out of step ${when}`);
+}
+
+/** The badge counts for a seat are the to-do list for that seat, counted. Returns them. */
+export async function assertCountsMatch(actor, side, seat, when = '') {
+  const col = side === 'brand' ? 'brand_id' : 'creator_id';
+  const listed = await actor.query(`select kind, count(*)::int as n from public.todos where side = $1 and ${col} = $2 group by kind order by kind`, [side, seat]);
+  const counted = await actor.query('select kind, n::int as n from public.todo_counts($1, $2) order by kind', [side, seat]);
+  assert.deepEqual(counted, listed, `badge counts and the to-do list differ ${when}`);
+  return counted;
+}
+
 // the prototype's arithmetic, to compare against
 export const js = {
   fee: (c) => Math.round(c / 20),

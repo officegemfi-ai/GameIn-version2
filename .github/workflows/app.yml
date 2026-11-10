@@ -5,7 +5,11 @@ name: GameIn app
 #   e2e    Supabase's own stack (migrations, demo seed, Realtime, Storage), the app built against it, and real accounts
 #          using it in a desktop and a phone browser (two jobs side by side)
 # Pushes to main then publish the site to GitHub Pages: the prototype at the root as before, the app under /app/.
-# That needs Settings → Pages → Source set to "GitHub Actions" (once); until then the deploy is skipped with a note.
+# Two things are asked first, and the deploy is skipped with a note until both are so:
+#   pages     Settings → Pages → Source is set to "GitHub Actions" (once);
+#   database  the live database has what this version of the app reads (app/deploy/database-needs.txt): a migration
+#             goes to the database before the app that needs it is published, never after.
+# "Run workflow" on main publishes too: that is how to publish once the database has been migrated.
 on:
   push:
   pull_request:
@@ -95,7 +99,7 @@ jobs:
 
   pages:
     name: is Pages set to GitHub Actions?
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     needs: [check, e2e]
     runs-on: ubuntu-24.04
     permissions:
@@ -120,10 +124,38 @@ jobs:
             echo "::notice title=App not published::GitHub Pages builds from a branch here ($type). To publish the app at /app/ next to the prototype, set Settings → Pages → Source to \"GitHub Actions\" once."
           fi
 
+  database:
+    name: does the live database have what this app reads?
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    needs: [check, e2e]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      ready: ${{ steps.ask.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ask
+        run: |
+          # exit 0: everything is there; 1: something is missing; 2: the API didn't answer (deploy/database-ready.sh)
+          answer=0
+          deploy/database-ready.sh > "$RUNNER_TEMP/database.txt" || answer=$?
+          cat "$RUNNER_TEMP/database.txt"
+          if [ "$answer" = 0 ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            found=$(grep -v '^there: ' "$RUNNER_TEMP/database.txt" | paste -sd ';' - | sed 's/;/; /g')
+            if [ "$answer" = 1 ]; then
+              echo "::warning title=App not published::The live database doesn't have what this version of the app reads ($found). Apply the newest migration in supabase/migrations to it first, then publish with Actions → GameIn app → Run workflow (on main)."
+            else
+              echo "::warning title=App not published::Couldn't ask the live database whether it is ready ($found). Check the project is up, then publish with Actions → GameIn app → Run workflow (on main)."
+            fi
+          fi
+
   deploy:
     name: publish to GitHub Pages
-    needs: pages
-    if: needs.pages.outputs.ready == 'true'
+    needs: [pages, database]
+    if: needs.pages.outputs.ready == 'true' && needs.database.outputs.ready == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
