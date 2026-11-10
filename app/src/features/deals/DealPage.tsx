@@ -6,6 +6,8 @@ import { formatCents } from '@/lib/money';
 import { FEE_PERCENT } from '@/lib/rules';
 import { formatDate } from '@/lib/time';
 import type { Side } from '@/lib/types';
+import { OtherSeat } from '@/features/seats/OtherSeat';
+import { isParty } from '@/features/seats/party';
 import { useSeat } from '@/features/seats/SeatProvider';
 import { useConversationWith } from '@/features/messages/api';
 import { BookAgain, DealPayments } from './DealExtras';
@@ -84,7 +86,7 @@ export default function DealPage() {
   const conversation = useConversationWith(q.data?.brand_id ?? null, q.data?.creator_id ?? null);
 
   if (q.isPending) return <Loading />;
-  if (q.isError) {
+  if (q.isLoadingError) {
     return (
       <div className="g-page">
         <PageHeader title="Deal" back={{ to: '/deals', label: 'deals' }} />
@@ -96,6 +98,17 @@ export default function DealPage() {
   const side = seat.side;
   const names: Names = { brand: d.brand?.name ?? 'The brand', creator: d.creator?.display_name ?? 'The creator' };
   const status = DEAL_STATUS[d.status];
+
+  // opened from a seat that isn't a party to this deal (a notification or a link for another of the account's seats):
+  // "brand" or "creator" here would be the wrong one's point of view, with the wrong one's buttons
+  if (!isParty(seat, d)) {
+    return (
+      <div className="g-page">
+        <PageHeader back={{ to: '/deals', label: 'deals' }} title={d.title} subtitle={`${names.brand} × ${names.creator}`} />
+        <OtherSeat what="deal" of={d} />
+      </div>
+    );
+  }
 
   return (
     <div className="g-page">

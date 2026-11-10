@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { Badge, Card, Empty, HexAvatar, Loading, Progress, QueryError, Tabs } from '@/components/ui';
+import { Badge, Card, Empty, HexAvatar, Loading, Progress, QueryError, ShowMore, Tabs } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
+import type { DealTab } from '@/lib/keys';
 import { formatCents } from '@/lib/money';
+import { loadedRows } from '@/lib/paging';
 import { useSeat } from '@/features/seats/SeatProvider';
-import { useDeals, type DealListRow } from './api';
-import { dealHeadline, isActiveDeal, isFinishedDeal, owesFunding } from './model';
+import { useActiveDealCount, useDeals, type DealListRow } from './api';
+import { dealHeadline, owesFunding } from './model';
 
 function DealRow({ d, side }: { d: DealListRow; side: 'brand' | 'creator' }) {
   const other = side === 'brand' ? d.creator?.display_name : d.brand?.name;
@@ -33,17 +35,19 @@ function DealRow({ d, side }: { d: DealListRow; side: 'brand' | 'creator' }) {
 
 export default function DealsPage() {
   const seat = useSeat();
-  const q = useDeals(seat);
-  const [tab, setTab] = useState<'active' | 'done'>('active');
-  const rows = (q.data ?? []).filter(tab === 'active' ? isActiveDeal : isFinishedDeal);
-  const activeCount = (q.data ?? []).filter(isActiveDeal).length;
+  const [tab, setTab] = useState<DealTab>('active');
+  // the running deals are what the page opens on; the finished ones, which only ever grow, are asked for when looked at
+  const lists = { active: useDeals(seat, 'active'), done: useDeals(seat, 'done', { enabled: tab === 'done' }) };
+  const activeCount = useActiveDealCount(seat).data ?? 0;
+  const q = lists[tab];
+  const rows = loadedRows(q.data);
   return (
     <div className="g-page">
       <PageHeader title="Deals" subtitle="Accepted offers: the money in escrow, the work delivered, what’s been released." />
       <Tabs label="Deals" value={tab} onChange={setTab} tabs={[{ id: 'active', label: 'active', count: activeCount }, { id: 'done', label: 'complete' }]} />
       {q.isPending ? (
         <Loading />
-      ) : q.isError ? (
+      ) : q.isLoadingError ? (
         <QueryError query={q} />
       ) : rows.length === 0 ? (
         <Card>
@@ -58,6 +62,7 @@ export default function DealsPage() {
               <DealRow key={d.id} d={d} side={seat.side} />
             ))}
           </div>
+          <ShowMore list={q} />
         </Card>
       )}
     </div>

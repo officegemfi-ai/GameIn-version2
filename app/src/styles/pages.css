@@ -88,7 +88,8 @@
 .g-delivs { display: flex; flex-direction: column; }
 .g-deliv { display: flex; flex-direction: column; gap: 10px; padding: 16px 0; border-top: 1px solid var(--border); }
 .g-deliv:first-child { border-top: 0; padding-top: 0; }
-.g-deliv:target { animation: g-flash 1.6s ease-out; }
+/* the deliverable a link pointed at (in-app links never set :target, so the page marks it itself) */
+.g-deliv.is-target { animation: g-flash 1.6s ease-out; }
 @keyframes g-flash { from { background: var(--mint-soft); } }
 .g-evidence { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; background: rgba(255, 255, 255, 0.025); border: 1px dashed var(--border-strong); border-radius: var(--radius); }
 .g-evidence__item { display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: var(--mint); font: 600 15px var(--font); cursor: pointer; text-align: left; overflow-wrap: anywhere; }
@@ -105,6 +106,7 @@
 /* ---- dashboard ------------------------------------------------------------------------------------------------ */
 .g-task .g-badge { min-width: 76px; justify-content: center; }
 .g-task__text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.g-task__more { margin: 0; padding: 12px 0 2px; border-top: 1px solid var(--border); }
 @media (max-width: 599px) {
   /* two lines on a phone instead of one cut short */
   .g-task__text { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }

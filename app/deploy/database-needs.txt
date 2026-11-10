@@ -1,0 +1,17 @@
+# What this version of the app reads that the database got last.
+#
+# One request per line, relative to the API's /rest/v1/. Before the app is published, deploy/database-ready.sh asks
+# the live API for each of them. "No such function" or "no such view" (404) means the live database hasn't had its
+# newest migration yet, and the app isn't published until it has: published first, it would ask for things that
+# aren't there and show an error on every screen.
+#
+# When a migration adds a function, view or table the app starts to read, add a line for it here in the same pull
+# request. Lines can go once every database the app is published against has had that migration for a while.
+# (A new column on something that already exists can't be told apart this way: name a function or view the same
+# migration adds.)
+
+# 20261110000100_scale.sql
+rpc/todo_counts?p_side=brand&p_seat=00000000-0000-0000-0000-000000000000
+rpc/search_creators?p_q=gamein&p_limit=1
+rpc/search_brands?p_q=gamein&p_limit=1
+ready_deliverables?select=id&limit=1

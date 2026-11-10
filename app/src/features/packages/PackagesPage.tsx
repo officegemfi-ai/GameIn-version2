@@ -23,6 +23,7 @@ function PackageForm({ creatorId, editing, onClose }: { creatorId: string; editi
 
   const submit = () => {
     if (problem) return setShown(problem);
+    setShown(null); // the form is fine now: an earlier complaint mustn't cover what the database says about this try
     save.mutate({ id: editing?.id, creatorId, title, code, description, priceCents: cents!, lengthLabel, items }, { onSuccess: onClose });
   };
 
@@ -79,7 +80,7 @@ export default function PackagesPage() {
       />
       {packages.isPending ? (
         <Loading />
-      ) : packages.isError ? (
+      ) : packages.isLoadingError ? (
         <QueryError query={packages} />
       ) : packages.data.length === 0 ? (
         <Card>

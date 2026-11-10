@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Session, User } from '@supabase/supabase-js';
+import { forgetDrafts } from '@/lib/drafts';
 import { startRealtime } from '@/lib/realtime';
 import { supabase } from '@/lib/supabase';
 
@@ -34,7 +35,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(next);
       setLoading(false);
       if (event === 'PASSWORD_RECOVERY') setRecovering(true);
-      if (event === 'SIGNED_OUT') queryClient.clear();
+      // signed out: nothing read or typed by this person stays behind for the next one on this device
+      if (event === 'SIGNED_OUT') {
+        queryClient.clear();
+        forgetDrafts();
+      }
     });
     return () => {
       alive = false;

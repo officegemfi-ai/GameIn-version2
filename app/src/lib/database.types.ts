@@ -345,6 +345,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "deal_periods_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "ready_deliverables"
+            referencedColumns: ["deal_id"]
+          },
+          {
             foreignKeyName: "deal_periods_renewal_fk"
             columns: ["renewal_id"]
             isOneToOne: false
@@ -497,6 +504,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "deliverables_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "ready_deliverables"
+            referencedColumns: ["deal_id"]
+          },
+          {
             foreignKeyName: "deliverables_milestone_id_fkey"
             columns: ["milestone_id"]
             isOneToOne: false
@@ -605,6 +619,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "events_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "ready_deliverables"
+            referencedColumns: ["deal_id"]
+          },
+          {
             foreignKeyName: "events_offer_id_fkey"
             columns: ["offer_id"]
             isOneToOne: false
@@ -692,6 +713,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "deals"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ledger_entries_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "ready_deliverables"
+            referencedColumns: ["deal_id"]
           },
           {
             foreignKeyName: "ledger_entries_payment_id_fkey"
@@ -818,6 +846,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "deals"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "milestones_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "ready_deliverables"
+            referencedColumns: ["deal_id"]
           },
           {
             foreignKeyName: "milestones_payment_fk"
@@ -1064,6 +1099,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "offers_deal_fk"
+            columns: ["deal_id"]
+            isOneToOne: true
+            referencedRelation: "ready_deliverables"
+            referencedColumns: ["deal_id"]
+          },
+          {
             foreignKeyName: "offers_package_id_fkey"
             columns: ["package_id"]
             isOneToOne: false
@@ -1083,6 +1125,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "deals"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "offers_previous_deal_fk"
+            columns: ["previous_deal_id"]
+            isOneToOne: false
+            referencedRelation: "ready_deliverables"
+            referencedColumns: ["deal_id"]
           },
         ]
       }
@@ -1275,6 +1324,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "deals"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "ready_deliverables"
+            referencedColumns: ["deal_id"]
           },
         ]
       }
@@ -1476,10 +1532,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "proofs_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "ready_deliverables"
+            referencedColumns: ["deal_id"]
+          },
+          {
             foreignKeyName: "proofs_deliverable_id_fkey"
             columns: ["deliverable_id"]
             isOneToOne: false
             referencedRelation: "deliverables"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proofs_deliverable_id_fkey"
+            columns: ["deliverable_id"]
+            isOneToOne: false
+            referencedRelation: "ready_deliverables"
             referencedColumns: ["id"]
           },
           {
@@ -1548,6 +1618,13 @@ export type Database = {
             referencedRelation: "deals"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "ratings_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "ready_deliverables"
+            referencedColumns: ["deal_id"]
+          },
         ]
       }
       releases: {
@@ -1612,6 +1689,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "deals"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "releases_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "ready_deliverables"
+            referencedColumns: ["deal_id"]
           },
           {
             foreignKeyName: "releases_milestone_id_fkey"
@@ -1698,6 +1782,45 @@ export type Database = {
             referencedRelation: "deals"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "renewals_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "ready_deliverables"
+            referencedColumns: ["deal_id"]
+          },
+        ]
+      }
+      unread_messages: {
+        Row: {
+          brand_id: string
+          conversation_id: string
+          creator_id: string
+          seq: number
+          to_side: Database["public"]["Enums"]["side"]
+        }
+        Insert: {
+          brand_id: string
+          conversation_id: string
+          creator_id: string
+          seq: number
+          to_side: Database["public"]["Enums"]["side"]
+        }
+        Update: {
+          brand_id?: string
+          conversation_id?: string
+          creator_id?: string
+          seq?: number
+          to_side?: Database["public"]["Enums"]["side"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "unread_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
         ]
       }
     }
@@ -1773,6 +1896,7 @@ export type Database = {
         Row: {
           brand_id: string | null
           clearing_cents: number | null
+          created_at: string | null
           creator_id: string | null
           deal_id: string | null
           funded_cents: number | null
@@ -1848,6 +1972,7 @@ export type Database = {
           package_id: string | null
           previous_amount_cents: number | null
           previous_deal_id: string | null
+          raw_status: Database["public"]["Enums"]["offer_status"] | null
           source: Database["public"]["Enums"]["offer_source"] | null
           status: Database["public"]["Enums"]["offer_status"] | null
           title: string | null
@@ -1905,6 +2030,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "offers_deal_fk"
+            columns: ["deal_id"]
+            isOneToOne: true
+            referencedRelation: "ready_deliverables"
+            referencedColumns: ["deal_id"]
+          },
+          {
             foreignKeyName: "offers_package_id_fkey"
             columns: ["package_id"]
             isOneToOne: false
@@ -1923,6 +2055,58 @@ export type Database = {
             columns: ["previous_deal_id"]
             isOneToOne: false
             referencedRelation: "deals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "offers_previous_deal_fk"
+            columns: ["previous_deal_id"]
+            isOneToOne: false
+            referencedRelation: "ready_deliverables"
+            referencedColumns: ["deal_id"]
+          },
+        ]
+      }
+      ready_deliverables: {
+        Row: {
+          amount_cents: number | null
+          brand_id: string | null
+          brand_name: string | null
+          creator_id: string | null
+          deal_id: string | null
+          deal_title: string | null
+          due_on: string | null
+          id: string | null
+          label: string | null
+          seq: number | null
+          status: Database["public"]["Enums"]["deliverable_status"] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deals_brand_id_fkey"
+            columns: ["brand_id"]
+            isOneToOne: false
+            referencedRelation: "brand_money"
+            referencedColumns: ["brand_id"]
+          },
+          {
+            foreignKeyName: "deals_brand_id_fkey"
+            columns: ["brand_id"]
+            isOneToOne: false
+            referencedRelation: "brands"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deals_creator_id_fkey"
+            columns: ["creator_id"]
+            isOneToOne: false
+            referencedRelation: "creator_wallet"
+            referencedColumns: ["creator_id"]
+          },
+          {
+            foreignKeyName: "deals_creator_id_fkey"
+            columns: ["creator_id"]
+            isOneToOne: false
+            referencedRelation: "creators"
             referencedColumns: ["id"]
           },
         ]
@@ -2095,6 +2279,42 @@ export type Database = {
         Args: { p_deal: string; p_months?: number; p_price_cents?: number }
         Returns: string
       }
+      search_brands: {
+        Args: { p_limit?: number; p_offset?: number; p_q: string }
+        Returns: {
+          created_at: string
+          id: string
+          logo_url: string | null
+          name: string
+          slug: string
+          verified: boolean
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "brands"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      search_creators: {
+        Args: { p_limit?: number; p_offset?: number; p_q: string }
+        Returns: {
+          avatar_url: string | null
+          bio: string
+          created_at: string
+          display_name: string
+          handle: string
+          id: string
+          owner_id: string
+          platforms: Json
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "creators"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       send_message: {
         Args: {
           p_as: Database["public"]["Enums"]["side"]
@@ -2132,6 +2352,13 @@ export type Database = {
           p_note?: string
         }
         Returns: string
+      }
+      todo_counts: {
+        Args: { p_seat: string; p_side: Database["public"]["Enums"]["side"] }
+        Returns: {
+          kind: string
+          n: number
+        }[]
       }
       undo_approval: { Args: { p_proof: string }; Returns: undefined }
       withdraw_offer: {

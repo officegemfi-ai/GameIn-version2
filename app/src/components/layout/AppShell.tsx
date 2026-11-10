@@ -1,12 +1,12 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
-import { Dialog, Icon, Logo, type IconName } from '@/components/ui';
+import { Dialog, Icon, Loading, Logo, type IconName } from '@/components/ui';
 import { liveState } from '@/lib/realtime';
 import type { Side } from '@/lib/types';
 import { signOut } from '@/features/auth/api';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { useTodos } from '@/features/dashboard/api';
-import { countTodos, type TodoCounts } from '@/features/dashboard/todos';
+import { useTodoCounts } from '@/features/dashboard/api';
+import { badgeCounts, type TodoCounts } from '@/features/dashboard/todos';
 import { NotificationBell } from '@/features/notifications/NotificationBell';
 import { useSeat, useSeats } from '@/features/seats/SeatProvider';
 import { SeatSwitcher } from '@/features/seats/SeatSwitcher';
@@ -45,8 +45,7 @@ function LiveDot() {
 /** The signed-in app: top bar, sidebar on a computer, bottom bar on a phone. */
 export function AppShell() {
   const seat = useSeat();
-  const todos = useTodos(seat);
-  const items = navFor(seat.side, countTodos(todos.data));
+  const items = navFor(seat.side, badgeCounts(useTodoCounts(seat).data));
   const bottom = items.slice(0, 4);
   const rest = items.slice(4);
   const [more, setMore] = useState(false);
@@ -113,9 +112,14 @@ export function AppShell() {
   );
 }
 
-/** Pages anyone can open (a creator's page): inside the app when signed in with a seat, on the public site otherwise. */
+/**
+ * Pages anyone can open (a creator's page): inside the app when signed in with a seat, on the public site otherwise.
+ * Which one isn't known until the saved session and the account's seats have been read; until then neither is shown
+ * (a signed-in person would otherwise see the visitors' page first, and the page inside it would start twice).
+ */
 export function AdaptiveShell() {
-  const { user } = useAuth();
-  const { seat } = useSeats();
+  const { user, loading: readingSession } = useAuth();
+  const { seat, loading: readingSeats } = useSeats();
+  if (readingSession || readingSeats) return <Loading />;
   return user && seat ? <AppShell /> : <PublicShell />;
 }

@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Button, Card, Notice, Segmented, TextField } from '@/components/ui';
 import { errorMessage } from '@/lib/errors';
 import type { Side } from '@/lib/types';
-import { PASSWORD_MIN, signUp } from './api';
+import { onboardingPath, PASSWORD_MIN, signUp } from './api';
 
 export default function SignUpPage() {
   const navigate = useNavigate();
@@ -29,12 +29,12 @@ export default function SignUpPage() {
     setError(null);
     setBusy(true);
     try {
-      const { needsConfirmation } = await signUp({ email, password, name });
+      const { needsConfirmation } = await signUp({ email, password, name, role });
       if (needsConfirmation) {
         setSentTo(email.trim());
         setBusy(false);
       } else {
-        navigate(`/onboarding?role=${role}`, { replace: true });
+        navigate(onboardingPath(role), { replace: true });
       }
     } catch (err) {
       setError(errorMessage(err));

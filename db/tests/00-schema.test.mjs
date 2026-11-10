@@ -12,6 +12,8 @@ const ACTIONS = [
   'send_message', 'send_offer', 'simulate_payment', 'submit_proof', 'undo_approval', 'withdraw_offer', 'withdraw_renewal',
 ];
 const MATH = ['fee_step', 'five_percent', 'instant_payout_fee', 'items_valid', 'split_cents'];
+// reads that are functions: they run with the caller's own access, like the views they read
+const READS = ['search_brands', 'search_creators', 'todo_counts'];
 const BACKEND = ['complete_payout', 'confirm_payment', 'expire_offers', 'fail_payment', 'release_due'];
 
 test('schema: row-level security, grants and arithmetic', async (t) => {
@@ -27,11 +29,17 @@ test('schema: row-level security, grants and arithmetic', async (t) => {
       assert.deepEqual(rows, []);
     });
 
-    await t.test('signed-in users can call the actions and the arithmetic, nothing else', async () => {
+    await t.test('signed-in users can call the actions, the arithmetic and the read functions, nothing else', async () => {
       const rows = await db.q(`select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                                where n.nspname = 'public' and has_function_privilege('authenticated', p.oid, 'execute')
                                order by 1`);
-      assert.deepEqual(rows.map((r) => r.proname), [...ACTIONS, ...MATH].sort());
+      assert.deepEqual(rows.map((r) => r.proname), [...ACTIONS, ...MATH, ...READS].sort());
+    });
+
+    await t.test('a read function never runs with more than its caller\'s access', async () => {
+      const rows = await db.q(`select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                               where n.nspname = 'public' and p.proname = any ($1) and (p.prosecdef or p.provolatile = 'v')`, [READS]);
+      assert.deepEqual(rows, []);
     });
 
     await t.test('visitors can only call the arithmetic', async () => {
@@ -54,7 +62,7 @@ test('schema: row-level security, grants and arithmetic', async (t) => {
       const rows = await db.q(`select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                                where n.nspname = 'private' and has_function_privilege('authenticated', p.oid, 'execute') order by 1`);
       assert.deepEqual(rows.map((r) => r.proname), ['can_read_proof', 'can_upload_proof', 'deal_of_path', 'is_admin',
-        'is_brand_member', 'is_creator_owner', 'my_brand_ids', 'my_contact_ids', 'my_creator_ids', 'my_deal_ids', 'waiting_on']);
+        'is_brand_member', 'is_creator_owner', 'my_brand_ids', 'my_contact_ids', 'my_creator_ids', 'waiting_on']);
     });
 
     await t.test('every action runs as its owner with a fixed search path', async () => {

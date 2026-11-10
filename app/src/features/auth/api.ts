@@ -8,15 +8,20 @@ export async function signIn(email: string, password: string): Promise<void> {
   if (error) throw error;
 }
 
+/** Where a new account sets up its first seat: the side it signed up as comes first on that page. */
+export const onboardingPath = (role: 'creator' | 'brand'): string => `/onboarding?role=${role}`;
+
 /**
  * A new account. With email confirmation on, there's no session until the person opens the link (and Supabase
  * answers an existing email the same way, so nobody can find out who has an account).
  */
-export async function signUp(input: { email: string; password: string; name: string }): Promise<{ needsConfirmation: boolean }> {
+export async function signUp(input: { email: string; password: string; name: string; role: 'creator' | 'brand' }): Promise<{ needsConfirmation: boolean }> {
   const { data, error } = await supabase.auth.signUp({
     email: input.email.trim(),
     password: input.password,
-    options: { data: { name: input.name.trim() }, emailRedirectTo: env.pageUrl('/onboarding') },
+    // the confirmation email leads back to setting up what they signed up as (the same page a sign-up without
+    // confirmation goes to)
+    options: { data: { name: input.name.trim() }, emailRedirectTo: env.pageUrl(onboardingPath(input.role)) },
   });
   if (error) throw error;
   if (!data.session && data.user && data.user.identities && data.user.identities.length === 0) {

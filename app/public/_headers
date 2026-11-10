@@ -1,0 +1,13 @@
+# Read by static hosts that take their caching rules from a file (Cloudflare Pages, Netlify). GitHub Pages ignores it
+# and keeps everything for ten minutes.
+#
+# Built files carry a fingerprint of their contents in their names, so a file never changes under its name: browsers
+# and the CDN keep them for a year and never ask again.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The page names those files. It is checked on every visit, so a new version of the app is picked up at once.
+/
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache

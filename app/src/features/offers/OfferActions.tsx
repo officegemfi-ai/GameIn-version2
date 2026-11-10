@@ -37,6 +37,7 @@ export function OfferActions({ offer: o, side, other }: { offer: OfferDetail['of
   const sendCounter = () => {
     const p = termsProblem(terms, false);
     if (p) return setProblem(p);
+    setProblem(null); // the terms are fine now: an earlier complaint mustn't stay up while (or after) this is sent
     counter.mutate({ offerId: o.id!, as: side, amountCents: parseDollars(terms.amount)!, items: terms.items, note: terms.note }, { onSuccess: close });
   };
 

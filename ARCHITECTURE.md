@@ -6,6 +6,9 @@ the brand's money waits in escrow, the creator delivers proof, and the money is 
 This document describes the production app in `app/` and the backend in `supabase/` it runs on. The single-file
 prototype at the repository root (`index.html`, with `live/`) stays online as the demo until the app replaces it.
 
+How this holds up as GameIn grows (what was measured on a database of 200,000 creators, what the design is, and what
+comes next and when) is in [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md).
+
 ## 1. System architecture
 
 ```mermaid
@@ -50,6 +53,9 @@ flowchart LR
   rows changed, and the app refetches only the affected screens. There's no global client store to keep in sync.
 - **Nothing is duplicated.** One function per move, one view per derived number (escrow, wallet, to-dos). Both sides
   of a deal always see the same figures.
+- **A request costs what it shows.** Every list names its seat, comes a page at a time in an order the database has
+  an index for, and every count on screen is counted by the database. Nothing asks for "everything this seat has"
+  ([SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) says why, with the measurements).
 
 ### Request lifecycle: a brand approves proof
 
@@ -80,23 +86,27 @@ flowchart LR
 ```
 GameIn-version2/
 ├─ ARCHITECTURE.md              ← this document
+├─ SYSTEM_DESIGN.md             ← how it scales: the design, the measurements behind it, the stages
 ├─ app/                         ← the production app
 │  ├─ index.html                ← the page shell (fonts, meta)
 │  ├─ vite.config.ts            ← base path, Content-Security-Policy for builds, test setup
 │  ├─ playwright.config.ts      ← e2e: desktop + phone against a Supabase stack
 │  ├─ .env.development          ← local Supabase CLI stack
 │  ├─ .env.production           ← the hosted project (public URL + publishable key)
-│  ├─ public/                   ← favicon, robots.txt
-│  ├─ deploy/404.html           ← GitHub Pages' 404: sends deep links (/app/deals/…) back into the app
+│  ├─ public/                   ← favicon, robots.txt, _headers (caching rules for hosts that read them)
+│  ├─ deploy/                   ← 404.html: GitHub Pages' 404, which sends deep links (/app/deals/…) back into the
+│  │                               app; database-ready.sh + database-needs.txt: the check, before publishing, that
+│  │                               the live database has what this version of the app reads
 │  ├─ src/
 │  │  ├─ main.tsx               ← boot: mounts <App/>
 │  │  ├─ app/                   ← App (providers), routes, route guards, useAction (mutations + toasts),
-│  │  │                            deepLink.ts (puts a deep link's path back before the router starts)
+│  │  │                            deepLink.ts (puts a deep link's path back before the router starts),
+│  │  │                            startOver.tsx (a page about one offer, deal or creator starts over for each)
 │  │  ├─ lib/                   ← framework-free modules
 │  │  │  ├─ supabase.ts         ← the typed client
 │  │  │  ├─ env.ts              ← the Supabase URL and key, the base path
-│  │  │  ├─ db.ts               ← must/maybe/one: a response's data, or its error thrown
-│  │  │  ├─ queryClient.ts      ← cache times, which errors are worth a retry
+│  │  │  ├─ db.ts               ← must/maybe/one: a response's data, or its error thrown (with its HTTP status)
+│  │  │  ├─ queryClient.ts      ← how long each kind of data stays fresh, which errors are worth a retry
 │  │  │  ├─ database.types.ts   ← generated from the database (supabase gen types)
 │  │  │  ├─ types.ts            ← app types: Side, Seat, Item, row aliases
 │  │  │  ├─ money.ts            ← cents, formatting, the fee formulas (mirror the database's)
@@ -105,13 +115,17 @@ GameIn-version2/
 │  │  │  ├─ time.ts             ← relative time, countdowns, due dates
 │  │  │  ├─ errors.ts           ← database refusals and auth errors → readable messages
 │  │  │  ├─ keys.ts             ← query keys, their scopes, and what each change affects (moves + Realtime)
-│  │  │  ├─ realtime.ts         ← one channel per person → targeted invalidation, polling fallback
+│  │  │  ├─ paging.ts           ← lists a page at a time: the page size, usePagedList, "show more"
+│  │  │  ├─ realtime.ts         ← one channel per person → targeted invalidation at a bounded pace, polling fallback
 │  │  │  ├─ storage.ts          ← proof uploads, signed links
-│  │  │  └─ useDebouncedValue.ts ← search boxes ask when typing pauses
+│  │  │  ├─ useDebouncedValue.ts ← search boxes ask when typing pauses
+│  │  │  ├─ usePageVisible.ts   ← whether the tab is being looked at (read receipts wait for it)
+│  │  │  └─ drafts.ts           ← text typed and not sent yet, kept by the place it was typed for
 │  │  ├─ features/              ← one folder per domain: api.ts (queries + mutations), model.ts (pure
 │  │  │                            domain logic: labels, states, predicates) and its screens
 │  │  │  ├─ auth/               ← session provider, sign in/up, password reset
-│  │  │  ├─ seats/              ← creator/brand seats, the seat switcher
+│  │  │  ├─ seats/              ← creator/brand seats, the seat switcher; party.ts + OtherSeat: whose an offer,
+│  │  │  │                         deal or conversation is, and what to show from a seat that isn't a party
 │  │  │  ├─ onboarding/         ← create a creator profile or a brand
 │  │  │  ├─ landing/            ← the public home page
 │  │  │  ├─ dashboard/          ← to-dos (todos.tsx: one table for badges and tasks), money, active deals
@@ -120,7 +134,8 @@ GameIn-version2/
 │  │  │  ├─ packages/           ← a creator's packages
 │  │  │  ├─ offers/             ← list, detail, new offer/pitch, counter
 │  │  │  ├─ deals/              ← list, detail (DealPage → Deliverables, DealExtras, FundDialog, Proof):
-│  │  │  │                         funding, proof, approval, release, rating
+│  │  │  │                         funding, proof, approval, release, rating; undoWindow.ts times the undo
+│  │  │  │                         window on the device's own clock
 │  │  │  ├─ messages/           ← conversations and threads
 │  │  │  ├─ wallet/             ← creator balance, history, payouts
 │  │  │  ├─ payments/           ← brand payments and escrow
@@ -132,12 +147,14 @@ GameIn-version2/
 │  │  │  └─ layout/             ← AppShell (sidebar, top bar, phone bottom bar), PublicShell, PageHeader
 │  │  ├─ assets/fonts/          ← Rajdhani and Michroma (OFL), served with the app
 │  │  └─ styles/                ← tokens.css (the palette), base.css, ui.css, layout.css, pages.css
-│  └─ tests/e2e/                ← Playwright specs: the deal flow, access, auth, seats, public pages
+│  └─ tests/e2e/                ← Playwright specs: the deal flow, access, auth, seats, public pages, and
+│                                  regressions.spec.ts (each fixed bug's reproduction)
 ├─ supabase/                    ← the backend
-│  ├─ migrations/               ← schema, helpers, actions, views, security (applied in order)
+│  ├─ migrations/               ← schema, helpers, actions, views, security, scale (applied in order)
 │  ├─ seed.sql                  ← demo accounts and deals
 │  └─ config.toml               ← the local stack (Supabase CLI)
-├─ db/tests/                    ← database tests (rules, money, races)
+├─ db/tests/                    ← database tests (rules, money, races, what stage one records and counts)
+├─ db/bench/                    ← the scale benchmark: a big database, every screen's requests, what each costs
 ├─ .github/workflows/
 │  ├─ app.yml                   ← app: check, e2e (desktop + phone), deploy to Pages
 │  └─ database.yml, live.yml, tests.yml ← backend and prototype checks
@@ -156,10 +173,38 @@ GameIn-version2/
 - A business number shown on screen (5%, 24 hours, 7 days) comes from `lib/rules.ts`, never a literal.
 - Shared UI lives in `components/ui`, and nothing in `ui` knows about the database.
 
+**Rules that came out of bugs.** Each of these was broken once; `tests/e2e/regressions.spec.ts` and the unit tests
+named below hold them.
+
+- **A screen states only what it knows.** A page shows an error in place of its content only when there is nothing
+  to show (`query.isLoadingError`); a refresh that fails later leaves what's loaded on screen, with any dialog open
+  on it. A dashboard waits for every request its figures come from: a request that failed or is still on its way
+  is never shown as `$0.00` or "no deals".
+- **A page about one offer, deal or conversation checks the seat is a party to it** (`seats/party.ts`). One account
+  can hold several seats and one bell serves them all, so links arrive from every seat. From a seat that isn't a
+  party the page shows whose it is and a button to switch (`OtherSeat`), never the other party's view or moves.
+- **The device's clock is never compared with the database's to decide anything.** The undo window after approving
+  proof is timed from when this browser sent the approval and got its answer (`deals/undoWindow.ts`); "not yet"
+  from the database means ask again, not fail.
+- **One layer retries.** The Supabase client retries reads that can't reach the server; the query client doesn't
+  repeat that (`lib/queryClient.ts`), and moves are never retried. A read the database stopped at its time limit
+  isn't asked for again either: the same work would be stopped at the same place, at the moment the database has
+  least to spare.
+- **Money typed by a person is read strictly.** A comma is a thousands separator only between groups of three
+  digits; anything else ("299,99", "0,500") is asked again rather than guessed (`lib/money.ts`).
+- **What's typed or opened for one thing never follows the person to another.** React Router keeps a page on
+  show when only the id in its address changes (a notification pressed from another deal's page, Back and
+  Forward), and a box that stays on screen keeps its text. So a page about one offer, deal or creator starts over
+  for each one and for each seat (`app/startOver.tsx`, set in `routes.tsx`), and an unsent message is kept with
+  its conversation, not in the box (`lib/drafts.ts`). New state on such a page needs nothing extra; a new page
+  with an id in its address needs its `about` in `routes.tsx` (`app/routes.test.tsx` fails until it has one, or
+  a reason not to).
+
 ## 4. Database schema
 
-Five migrations in `supabase/migrations/` (2,900 lines), tested by `db/tests` on Postgres 15, 17 and Supabase's own
-image.
+Six migrations in `supabase/migrations/` (3,500 lines), tested by `db/tests` on Postgres 15, 17 and Supabase's own
+image. The sixth (`…_scale.sql`) changes no rule and no figure: it is how the same rules are asked so that a request
+costs what it shows ([SYSTEM_DESIGN.md](SYSTEM_DESIGN.md)).
 
 ```mermaid
 erDiagram
@@ -196,7 +241,7 @@ erDiagram
 | Deals | `deals`, `deal_periods`, `milestones`, `deliverables` | One milestone per deliverable; the amount is split to the cent |
 | Money | `payments`, `payment_milestones`, `releases`, `payouts`, `ledger_entries` | Integer cents. 5% brand fee on funding, 5% creator fee on release, 1.5% for an instant payout. The ledger balances to zero per transaction and can't be edited |
 | Evidence | `proofs` (+ the private `proofs` storage bucket) | One live proof per deliverable; files under `<deal id>/` |
-| Conversation | `conversations`, `messages`, `conversation_reads`, `events`, `notifications` | Every move writes an event and notifies the other side |
+| Conversation | `conversations`, `messages`, `conversation_reads`, `unread_messages`, `events`, `notifications` | Every move writes an event and notifies the other side. `unread_messages` is the record of what each side hasn't read, kept by triggers |
 | After the deal | `renewals`, `ratings` | |
 
 **Enums:**
@@ -214,13 +259,20 @@ erDiagram
 **Views** do the arithmetic with the reader's own rights (`security_invoker`):
 
 - `my_seats`
-- `offer_board`: the latest terms, who the offer waits on, and expired at once
+- `offer_board`: the latest terms, who the offer waits on, and expired at once (`raw_status` is the state as stored,
+  which the offers page's tabs ask by)
 - `deal_money`
 - `brand_money`
 - `creator_wallet`
 - `wallet_lines`
 - `todos`
+- `ready_deliverables`: a creator's funded work that hasn't been delivered yet
 - `conversation_timeline`
+
+**Read functions** run with the caller's own access, like the views:
+
+- `todo_counts(side, seat)`: how many to-dos of each kind wait on a seat
+- `search_creators(q, limit, offset)`, `search_brands(q, limit, offset)`: name or handle contains what was typed
 
 **Scheduled jobs** (pg_cron):
 
@@ -247,22 +299,31 @@ The API is Supabase's: PostgREST over the schema, Auth, Storage and Realtime. Al
 
 ### Reads (`GET /rest/v1/...`, row-level security applies)
 
+Every list names its seat, asks for one page (`offset`, `limit`: 25 rows, 24 creators) and gives an order that ends in
+a unique column, so pages never overlap. `{seat}` is `brand_id=eq.{id}` or `creator_id=eq.{id}`.
+
 | Endpoint | Screen |
 |---|---|
 | `my_seats` | Seat switcher, onboarding |
-| `creators?select=*,packages(*)&or=(display_name.ilike.*q*,handle.ilike.*q*)` | Discover (public) |
-| `creators?handle=eq.{handle}&select=*,packages(*)` | Creator page (public) |
-| `brands?or=(name.ilike.*q*,slug.ilike.*q*)` | Pitch a brand |
+| `rpc/todo_counts?p_side={side}&p_seat={id}` | The navigation's badges, the "your turn" count |
+| `todos?side=eq.{side}&{seat}&limit=20` | Dashboard: the first things that wait on the seat |
+| `creators?handle=not.like.deleted-*&order=display_name,id` | Discover: the directory (public) |
+| `rpc/search_creators?p_q={text}&p_limit=24&p_offset={n}&select=…,packages(…)` | Discover: a search |
+| `creators?handle=ilike.{handle}&select=…,packages(*)` | Creator page (public) |
+| `rpc/search_brands?p_q={text}&p_limit=20` | Pitch a brand |
 | `packages?creator_id=eq.{id}` | My packages |
-| `offer_board?{side}_id=eq.{seat}&select=*,brand:brands(name,slug),creator:creators(display_name,handle)` | Offers |
+| `offer_board?{seat}&closed_at=is.null&raw_status=eq.{sent or countered}&order=expires_at,id` | Offers: "your turn" and "waiting on them" |
+| `offer_board?{seat}&closed_at=not.is.null&order=closed_at.desc,id.desc` | Offers: "closed" |
 | `offer_board?id=eq.{id}` + `offer_versions?offer_id=eq.{id}` | Offer page and its history |
-| `deal_money?{side}_id=eq.{seat}&select=*,brand:brands(...),creator:creators(...)` | Deals |
-| `deals?id=eq.{id}&select=*,milestones(*),deliverables(*),proofs(*),ratings(*)` + `payments?deal_id=eq.{id}` | Deal page |
-| `todos?side=eq.{side}&{side}_id=eq.{seat}` | Dashboard |
-| `conversations?{side}_id=eq.{seat}&select=*,conversation_reads(*),brand:brands(name),creator:creators(display_name)` | Messages |
-| `conversation_timeline?conversation_id=eq.{id}&order=at.desc&limit=200` | A thread |
-| `creator_wallet?creator_id=eq.{id}`, `wallet_lines`, `payouts` | Wallet |
-| `brand_money?brand_id=eq.{id}`, `payments?brand_id=eq.{id}` | Payments |
+| `deals?{seat}&status=in.(…)&order=created_at.desc,id.desc&select=…,deliverables(status,due_on)`, then `deal_money?deal_id=in.({the page's ids})` | Deals: "active" and "complete"; the dashboard's active deals |
+| `deals?{seat}&status=in.(awaiting_funding,in_progress)` as `HEAD` with `Prefer: count=exact` | The "active" tab's count |
+| `deals?brand_id=eq.{id}&status=in.(…)&milestones.status=eq.pending&select=…,milestones!inner(id)&limit=20`, then their `deal_money` | Dashboard: deals to fund |
+| `ready_deliverables?creator_id=eq.{id}&order=due_on,id&limit=20` | Dashboard: work ready to deliver |
+| `deals?id=eq.{id}&select=*,milestones(*),deliverables(*),proofs(*),releases(*),ratings(*),payments(*)` + `deal_money?deal_id=eq.{id}` | Deal page |
+| `conversations?{seat}&order=last_message_at.desc.nullslast,created_at.desc,id.desc&select=…,conversation_reads(…)` | Messages |
+| `conversation_timeline?conversation_id=eq.{id}&order=at.desc,ref.desc&limit={200, 400, …}` | A thread: its newest lines, more on "show earlier" |
+| `creator_wallet?creator_id=eq.{id}`, `wallet_lines?creator_id=eq.{id}&order=at.desc,kind.desc,…` | Wallet |
+| `brand_money?brand_id=eq.{id}`, `payments?brand_id=eq.{id}&order=created_at.desc,id.desc` | Payments |
 | `notifications?select=*,event:events(*,brand:brands(name),creator:creators(display_name))&order=id.desc&limit=30` | The bell |
 
 ### Moves (`POST /rest/v1/rpc/{function}`, one transaction each)
@@ -310,7 +371,9 @@ With Stripe these will be called by Edge Functions:
 
 - `POST /storage/v1/object/proofs/{deal id}/{file}`. Only the deal's creator can upload, and nobody can overwrite.
 - `POST /storage/v1/object/sign/proofs/{path}` makes a link that expires after an hour, for either party only.
-- `wss://.../realtime/v1/websocket`: `postgres_changes` on 15 tables, filtered by row-level security.
+- `wss://.../realtime/v1/websocket`: `postgres_changes` on four tables (`events`, `messages`,
+  `conversation_reads`, `notifications`), filtered by row-level security. Every move writes one event row naming the
+  offer or deal it was about, and that row says which screens to refresh.
 
 ## 6. UI architecture
 
@@ -329,7 +392,9 @@ flowchart TB
 
 **Seats.** The signed-in person acts as one seat at a time: their creator profile or one of their brands. The seat
 lives in `SeatProvider` and is remembered per browser. Every query includes it in its key, so switching seats shows
-the other side's data without a reload.
+the other side's data without a reload. An offer, deal or conversation opened from a seat that isn't one of its two
+parties shows whose it is and offers the switch; the bell words each notification for the seat it was meant for and
+switches to it when pressed.
 
 **Routes:**
 
@@ -349,16 +414,28 @@ the other side's data without a reload.
 | `/payments` | Escrow and payments | brand |
 | `/settings` | Account, creator profile, brand | both |
 
+**Lists.** A list is read a page at a time (`lib/paging.ts`: 25 rows, then "show more"), each tab of a page as its
+own list, and the tab nobody has opened isn't asked for. A count on screen (the navigation's badges, "your turn 27",
+"active 3") is counted by the database, never by counting the rows that happened to be fetched. The dashboard lists
+the first twenty things that wait on a seat and says how many more there are.
+
 **Live updates:**
 
-- `lib/realtime.ts` opens one channel per signed-in person and maps each changed row to the query keys it affects
-  (`affected` in `lib/keys.ts`). For example, a `proofs` row invalidates `['deal', deal_id]`, the deal lists, the
-  to-dos and the wallet. Only the screens on show refetch.
+- `lib/realtime.ts` opens one channel per signed-in person on four tables and maps each new row to the query keys
+  it affects (`affected` in `lib/keys.ts`). A `payment_released` event for deal `d1`, for example, invalidates
+  `['deal', 'd1']`, the deal lists, the to-dos and their counts, the wallet and the brand's money. Only the screens on
+  show refetch.
+- The first change refreshes the screen at once. While changes keep arriving, a screen refreshes at most once a
+  second, and the totals (the badge counts, a brand's money, a creator's wallet: the reads that add up everything a
+  seat has) at most every five seconds. A person's own move refreshes everything it touches straight away.
 - If Realtime can't connect, the screens on show refetch every 5 seconds until it's back: the kinds Realtime would
-  have refreshed (`LIVE_SCOPES`), not the creator directory or the account's seats.
-- The notification bell checks every 30 seconds as a safety net. When a newer notification turns up, it refreshes
-  the screens on show that haven't refreshed since it arrived, so a move that Realtime already delivered isn't
-  fetched twice. The app also refetches when the tab comes back into view.
+  have refreshed (`LIVE_SCOPES`), not the creator directory or the account's seats. A refresh still on its way is
+  left to land (on a slow connection one can outlast a tick), and a screen that couldn't load keeps its error and
+  its "try again" instead of flickering back to a spinner. When Realtime connects after that (back from a drop, or
+  late on a slow start), the screens on show refetch once more: Realtime only tells of changes from then on.
+- The notification bell is also a safety net: checked every 30 seconds while Realtime is down, every two minutes
+  while it's up. When a newer notification turns up that Realtime didn't bring, the bell refreshes the screens on
+  show. The app also refetches when the tab comes back into view.
 
 **Design system.**
 
@@ -392,13 +469,14 @@ serve `index.html` directly and skip that hop.
 
 ## 8. Scaling plan
 
-| When | Change |
-|---|---|
-| Now | Static app on a CDN, Supabase Pro. Queries are scoped to one seat and paged (creators 24 at a time, threads 200 messages, notifications 30) |
-| ~1k active people | Move hosting to Cloudflare Pages or Vercel, for headers (HSTS, frame-ancestors) and preview deploys. Add Sentry, plus index review with `pg_stat_statements` |
-| ~10k | Supavisor pooling for PostgREST. Search on `pg_trgm` indexes (creators, brands). Cursor pagination on lists. CDN caching of public creator pages |
-| Money goes real | Stripe Connect through Edge Functions (`payments_provider = 'stripe'`). Webhooks call `confirm_payment` / `complete_payout`. A custom SMTP sender, then email confirmation back on |
-| ~100k | Read replicas for public pages and search. Move notification fan-out to a queue (pgmq). Split analytics to a warehouse |
+[SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) is the plan, with the measurements it rests on
+([db/bench](db/bench/README.md)). In short:
+
+| Stage | What | When |
+|---|---|---|
+| One (built) | Every request costs what it shows: access rules that check a row against its own deal or offer, indexes for what the screens ask, lists a page at a time, counts from the database, unread messages recorded as they happen, search as its own request, live updates at a bounded pace, a deploy that checks the database first | Now |
+| Two | Totals kept as rows instead of added up (a brand's money, a wallet, its history); live updates sent once per change instead of checked per listener; public pages from an edge cache; old notifications put away; payments through Stripe | When an account passes about a thousand deals, or a few hundred people are online at once |
+| Three | Read replicas, the big tables split by month, a search service, a queue for notifications | When one database server is no longer enough |
 
 The rules stay in one place, the database, so new clients can be added without re-implementing them: a mobile app, a
 brand API, admin tools.
@@ -406,11 +484,23 @@ brand API, admin tools.
 ## 9. Testing and delivery
 
 - **Database**: `db/tests` checks every rule, the money arithmetic, and races (two tabs approving at once) on three
-  Postgres versions.
+  Postgres versions. What stage one records or counts is checked against the rows themselves, after every random
+  walk too: the unread record against the messages and read marks, the badge counts against the to-do list, search
+  against the directory; and the checks made when a move commits are shown to see the rows they check, whoever
+  commits (`10-scale.test.mjs`).
+- **At scale**: `db/bench` grows a database to 200,000 creators and measures every screen's requests on it
+  ([how](db/bench/README.md), [the latest results](db/bench/RESULTS.md)). Run it before and after anything that
+  changes how the database is read.
 - **App unit tests** (Vitest) cover money formatting and the fee formulas (checked against values computed by the
   database's own functions), deliverables validation, error messages, time formatting and the shared clock, the
   cache keys and what each change affects (Realtime and moves alike), the deal model, the to-do kinds, activity
-  lines, proof file names, offer turns, and the deliverables editor.
+  lines, proof file names, offer turns, and the deliverables editor. They also hold the rules that came out of bugs:
+  reading typed money, which failures are retried, the fallback refresh and the catch-up when Realtime connects,
+  the undo window and its countdown on clocks that are off, whose a deal is, the deal page under a failed refresh,
+  the message box and its text per conversation, pages that start over for each offer or deal, dialog focus, and
+  brand web names. And the ones stage one rests on: pages that neither overlap nor leave a gap, the stored state
+  each offers tab asks for, badge counts taken from the database's count, and how often the screens refresh when
+  changes arrive in a burst.
 - **App end to end** (Playwright) runs on desktop and phone against the Supabase CLI stack with the migrations and
   seed. Two new people in two browsers:
   - sign up and onboard; a package, a booking, a counter that arrives live, acceptance;
@@ -419,9 +509,19 @@ brand API, admin tools.
   - the creator's wallet and a payout.
 
   Plus: what an outsider can't see (row-level security), sign-in redirects back to the page asked for, joining
-  twice with one email, a wrong password, switching seats, and the public pages.
+  twice with one email, a wrong password, switching seats, and the public pages. `regressions.spec.ts` replays
+  each bug that was fixed: a link opened from the wrong seat, a "review proof" link on a long deal, dashboards when
+  a request fails, changing the creator on a new offer, brand names of any length or script, broken links, typing
+  into a dialog, "seen" on a message nobody looked at, a package repriced mid-booking, a message typed for one
+  conversation and looked for in another, and a sheet left open when Back leads to another offer. The deal flow
+  approves from a browser whose clock runs half a minute fast. `lists.spec.ts` gives a seat 27 offers (two more
+  than a page) and checks the pages, the counts wherever they show, and that answering one moves it to the right
+  tab on both sides.
 - **CI** (`.github/workflows/app.yml`) runs on every push and pull request:
   1. typecheck, lint, unit tests, build;
   2. e2e (desktop and phone, side by side);
-  3. on `main`, publish to GitHub Pages: the prototype at the root as before, the app under `/app/`. This needs
-     Settings → Pages → Source set to "GitHub Actions" once; until then the step is skipped with a note.
+  3. on `main`, publish to GitHub Pages: the prototype at the root as before, the app under `/app/`. Two things are
+     asked first, and the step is skipped with a note until both are so: Settings → Pages → Source is set to
+     "GitHub Actions" (once), and the live database has what this version of the app reads
+     (`app/deploy/database-ready.sh`: a migration reaches the database before the app that needs it is published,
+     never after). "Run workflow" on `main` publishes too.

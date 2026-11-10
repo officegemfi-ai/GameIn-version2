@@ -2,13 +2,15 @@ import { useQuery } from '@tanstack/react-query';
 import { useAction } from '@/app/useAction';
 import { maybe, must, one } from '@/lib/db';
 import { affected, keys, scopes } from '@/lib/keys';
+import { pageRange, usePagedList } from '@/lib/paging';
 import { supabase } from '@/lib/supabase';
 import { seatColumn, type Seat, type Side } from '@/lib/types';
 
 const CONVERSATION =
   'id, brand_id, creator_id, created_at, last_message_at, last_message_seq, brand:brands(id, name, slug), creator:creators(id, display_name, handle), conversation_reads(side, last_read_seq, last_read_at)';
 
-async function fetchConversations(seat: Seat) {
+async function fetchConversationsPage(seat: Seat, page: number) {
+  const [from, to] = pageRange(page);
   return must(
     supabase
       .from('conversations')
@@ -16,13 +18,15 @@ async function fetchConversations(seat: Seat) {
       .eq(seatColumn(seat), seat.id)
       .order('last_message_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
-      .limit(100),
+      .order('id', { ascending: false })
+      .range(from, to),
   );
 }
-export type ConversationListRow = Awaited<ReturnType<typeof fetchConversations>>[number];
+export type ConversationListRow = Awaited<ReturnType<typeof fetchConversationsPage>>[number];
 
+/** This seat's conversations, the latest first, a page at a time. */
 export function useConversations(seat: Seat) {
-  return useQuery({ queryKey: keys.conversations(seat), queryFn: () => fetchConversations(seat) });
+  return usePagedList(keys.conversations(seat), (page) => fetchConversationsPage(seat, page));
 }
 
 /** How far a side has read a conversation. */
@@ -41,20 +45,44 @@ export function useConversationWith(brandId: string | null, creatorId: string | 
   });
 }
 
-const THREAD_LIMIT = 200;
+/** How many lines a thread opens with, and how many more "show earlier" brings each time. */
+export const THREAD_LINES = 200;
 
-async function fetchThread(conversationId: string) {
+async function fetchThread(conversationId: string, lines: number) {
   const [conversation, rows] = await Promise.all([
     one(supabase.from('conversations').select(CONVERSATION).eq('id', conversationId).maybeSingle(), 'That conversation'),
-    must(supabase.from('conversation_timeline').select('*').eq('conversation_id', conversationId).order('at', { ascending: false }).limit(THREAD_LIMIT)),
+    // newest first, so the limit keeps the newest; "ref" settles the order of two lines saved at the same instant
+    must(supabase.from('conversation_timeline').select('*').eq('conversation_id', conversationId).order('at', { ascending: false }).order('ref', { ascending: false }).limit(lines)),
   ]);
-  return { conversation, timeline: rows.reverse() };
+  // as many lines as were asked for: there may be earlier ones
+  return { conversation, timeline: rows.reverse(), earlier: rows.length === lines };
 }
 export type Thread = Awaited<ReturnType<typeof fetchThread>>;
 
-/** A conversation: its last 200 lines (messages and the deal's events), oldest first. */
-export function useThread(conversationId: string | undefined) {
-  return useQuery({ queryKey: keys.thread(conversationId ?? 'none'), queryFn: () => fetchThread(conversationId!), enabled: !!conversationId });
+/**
+ * What identifies a thread's newest line ('' for an empty thread). The thread view follows this to the bottom; the
+ * number of lines can't be followed, because a thread shows its newest 200 (or as many as were asked for) and a new
+ * line then pushes an old one out without the count changing.
+ */
+export function newestLineKey(timeline: Pick<Thread['timeline'][number], 'kind' | 'ref'>[]): string {
+  const newest = timeline[timeline.length - 1];
+  return newest ? `${newest.kind}:${newest.ref}` : '';
+}
+
+/** Where an unsent message waits (lib/drafts.ts): with its conversation, as written from one side of it. */
+export const draftPlace = (conversationId: string, side: Side): string => `message:${conversationId}:${side}`;
+
+/**
+ * A conversation: its newest `lines` lines (messages and the deal's events), oldest first. Asking for more keeps what
+ * is on screen there while the longer answer loads.
+ */
+export function useThread(conversationId: string | undefined, lines: number = THREAD_LINES) {
+  return useQuery({
+    queryKey: keys.thread(conversationId ?? 'none', lines),
+    queryFn: () => fetchThread(conversationId!, lines),
+    enabled: !!conversationId,
+    placeholderData: (previous) => (previous?.conversation.id === conversationId ? previous : undefined),
+  });
 }
 
 // --- moves -------------------------------------------------------------------------------------------------------
@@ -74,7 +102,7 @@ export function useStartConversation() {
       const c = await one(supabase.from('conversations').select('id').eq('brand_id', v.brandId).eq('creator_id', v.creatorId).maybeSingle(), 'The conversation');
       return c.id;
     },
-    { invalidate: () => [scopes.conversations, scopes.todos], success: 'Message sent.' },
+    { invalidate: () => [scopes.conversations, ...affected.waiting()], success: 'Message sent.' },
   );
 }
 

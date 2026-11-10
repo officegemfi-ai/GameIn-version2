@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { Badge, ButtonLink, Card, Empty, HexAvatar, Loading, QueryError, Tabs, TimeAgo, TimeLeft } from '@/components/ui';
+import { Badge, ButtonLink, Card, Empty, HexAvatar, Loading, QueryError, ShowMore, Tabs, TimeAgo, TimeLeft } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { itemsFromJson } from '@/lib/items';
+import type { OfferTab } from '@/lib/keys';
 import { formatCents } from '@/lib/money';
+import { loadedRows } from '@/lib/paging';
 import { MAX_COUNTERS, OFFER_HOURS, PITCH_HOURS } from '@/lib/rules';
+import { useTodoCounts } from '@/features/dashboard/api';
+import { badgeCounts } from '@/features/dashboard/todos';
 import { useSeat } from '@/features/seats/SeatProvider';
 import { useOffers, type OfferListRow } from './api';
 import { offerState } from './model';
-
-type Tab = 'yours' | 'theirs' | 'closed';
 
 function OfferRow({ o, side }: { o: OfferListRow; side: 'brand' | 'creator' }) {
   const st = offerState(o, side);
@@ -42,17 +44,21 @@ function OfferRow({ o, side }: { o: OfferListRow; side: 'brand' | 'creator' }) {
 
 export default function OffersPage() {
   const seat = useSeat();
-  const q = useOffers(seat);
-  const all = q.data ?? [];
-  const groups: Record<Tab, OfferListRow[]> = { yours: [], theirs: [], closed: [] };
-  for (const o of all) {
-    const st = offerState(o, seat.side);
-    groups[st.yourTurn ? 'yours' : st.open ? 'theirs' : 'closed'].push(o);
-  }
-  const [tab, setTab] = useState<Tab | null>(null);
-  const current: Tab = tab ?? (groups.yours.length || !groups.theirs.length ? 'yours' : 'theirs');
+  const [picked, setPicked] = useState<OfferTab | null>(null);
+  // The two open tabs are asked for at once: which one the page opens on depends on both. The closed one, which is
+  // where an account's history piles up, only when it is opened.
+  const yours = useOffers(seat, 'yours');
+  const theirs = useOffers(seat, 'theirs');
+  const lists = { yours, theirs, closed: useOffers(seat, 'closed', { enabled: picked === 'closed' }) };
+  const rows = { yours: loadedRows(yours.data), theirs: loadedRows(theirs.data), closed: loadedRows(lists.closed.data) };
+  // until the person picks: what waits on them, unless nothing does and something waits on the other side
+  const deciding = picked === null && (yours.isPending || theirs.isPending) && !yours.isLoadingError && !theirs.isLoadingError;
+  const current: OfferTab = picked ?? (rows.yours.length || !rows.theirs.length ? 'yours' : 'theirs');
+  const q = lists[current];
+  // how many wait on this seat: the same count the navigation shows, counted by the database
+  const waiting = badgeCounts(useTodoCounts(seat).data).offers;
 
-  const empty: Record<Tab, string> = {
+  const empty: Record<OfferTab, string> = {
     yours: 'Nothing waits on you.',
     theirs: seat.side === 'brand' ? 'No offers out. Send one from a creator’s page.' : 'No pitches out.',
     closed: 'Accepted, declined and expired offers show up here.',
@@ -74,28 +80,29 @@ export default function OffersPage() {
       <Tabs
         label="Offers"
         value={current}
-        onChange={setTab}
+        onChange={setPicked}
         tabs={[
-          { id: 'yours', label: 'your turn', count: groups.yours.length },
+          { id: 'yours', label: 'your turn', count: waiting },
           { id: 'theirs', label: 'waiting on them', count: 0 },
           { id: 'closed', label: 'closed' },
         ]}
       />
-      {q.isPending ? (
+      {deciding || q.isPending ? (
         <Loading />
-      ) : q.isError ? (
+      ) : q.isLoadingError ? (
         <QueryError query={q} />
-      ) : groups[current].length === 0 ? (
+      ) : rows[current].length === 0 ? (
         <Card>
           <Empty title={empty[current]} />
         </Card>
       ) : (
         <Card flush>
           <div className="g-list g-list--pad" role="list">
-            {groups[current].map((o) => (
+            {rows[current].map((o) => (
               <OfferRow key={o.id} o={o} side={seat.side} />
             ))}
           </div>
+          <ShowMore list={q} />
         </Card>
       )}
     </div>

@@ -1,10 +1,11 @@
 // Random walks: hundreds of random moves from both seats of two brands and two creators, many of them wrong on
 // purpose (the wrong side, a closed offer, money not in escrow, a window not ended). After every move the money audit
 // must find nothing, and every refusal must be a clean one (a rule, a permission or a missing row), never a table
-// constraint tripping or a crash. Both seats must show the same figures for every deal they share.
+// constraint tripping or a crash. Both seats must show the same figures for every deal they share, what is recorded as
+// unread must be exactly the messages nobody has read, and each seat's badge counts must be its to-do list, counted.
 //   GAMEIN_RANDOM_STEPS  moves per walk (default 250)   GAMEIN_RANDOM_SEEDS  comma-separated seeds (default 1,2,3)
 import assert from 'node:assert/strict';
-import { dbTest } from './fixtures.mjs';
+import { assertCountsMatch, assertUnreadInStep, dbTest } from './fixtures.mjs';
 
 const STEPS = Number(process.env.GAMEIN_RANDOM_STEPS || 250);
 const SEEDS = (process.env.GAMEIN_RANDOM_SEEDS || '1,2,3').split(',').map(Number);
@@ -156,6 +157,12 @@ for (const seed of SEEDS) {
         const row = { brand_id: pick(brands), creator_id: pick(creators) };
         return as(s, row).rpc('send_message', { p_brand: row.brand_id, p_creator: row.creator_id, p_as: s, p_body: 'walk message' });
       },
+      async read() {
+        const c = await any('select * from public.conversations');
+        if (!c) return;
+        const s = side();
+        return as(s, c).rpc('mark_read', { p_conversation: c.id, p_as: s, ...(chance(0.5) ? { p_upto_seq: Math.floor(r() * (c.last_message_seq + 2)) } : {}) });
+      },
       async bookAgain() {
         const d = await any("select * from public.deals where status = 'completed'");
         if (!d) return;
@@ -164,7 +171,7 @@ for (const seed of SEEDS) {
     };
     // early on, mostly make deals; then everything
     const weights = { send: 3, pitch: 1, counter: 2, accept: 4, decline: 1, withdraw: 1, expire: 1, fund: 4, clear: 3, submit: 5,
-      approve: 4, undo: 1, changes: 1, finalize: 3, autoApprove: 1, renew: 1, answerRenewal: 2, payout: 2, rate: 1, message: 1, bookAgain: 1 };
+      approve: 4, undo: 1, changes: 1, finalize: 3, autoApprove: 1, renew: 1, answerRenewal: 2, payout: 2, rate: 1, message: 2, read: 1, bookAgain: 1 };
     const bag = Object.entries(weights).flatMap(([k, n]) => Array(n).fill(k));
     const tally = { ok: 0, refused: 0 };
     for (let step = 0; step < STEPS; step++) {
@@ -185,6 +192,10 @@ for (const seed of SEEDS) {
           const fromCreator = await owners[d.creator_id].query('select * from public.deal_money where deal_id = $1', [d.id]);
           assert.deepEqual(fromBrand, fromCreator, `walk ${seed}: deal ${d.id} looks different from the two seats`);
         }
+        // what is recorded as unread is what is unread, and every seat's badge counts are its to-do list, counted
+        await assertUnreadInStep(w.db, `(walk ${seed}, after move ${step})`);
+        for (const b of brands) await assertCountsMatch(members[b][0], 'brand', b, `(walk ${seed}, brand seat, after move ${step})`);
+        for (const c of creators) await assertCountsMatch(owners[c], 'creator', c, `(walk ${seed}, creator seat, after move ${step})`);
         for (const c of creators) {
           const [wl] = await owners[c].query('select available_cents from public.creator_wallet where creator_id = $1', [c]);
           const [lines] = await owners[c].query('select coalesce(sum(amount_cents), 0)::bigint as s from public.wallet_lines where creator_id = $1', [c]);

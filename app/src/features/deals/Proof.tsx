@@ -1,9 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActionDialog, Button, Icon, Notice, TextAreaField, TextField, useNow, useToast } from '@/components/ui';
-import { errorMessage } from '@/lib/errors';
+import { errorMessage, ruleOf } from '@/lib/errors';
 import { MAX_PROOF_BYTES, proofFileName, proofFileUrl } from '@/lib/storage';
 import type { DeliverableRow, ProofRow } from '@/lib/types';
 import { useFinalizeRelease, useSubmitProof, useUndoApproval } from './api';
+import { undoWindow } from './undoWindow';
+
+/** How many times to ask for a release the database says is early (once a second; its longest window is a minute). */
+const MAX_EARLY_TRIES = 60;
+/** How many times to ask again after a request that failed outright (no connection, a server error). */
+const MAX_FAILED_TRIES = 6;
 
 /** A link to show: "twitch.tv/videos/2299110" for "https://www.twitch.tv/videos/2299110". */
 export function shortLink(url: string): string {
@@ -26,8 +32,11 @@ export function ProofEvidence({ proof }: { proof: ProofRow }) {
     setOpening(true);
     try {
       const url = await proofFileUrl(proof.file_path);
-      if (tab) tab.location.href = url;
-      else window.location.href = url;
+      if (tab) {
+        // the file is whatever the creator uploaded: it gets no handle on this page (it could send it elsewhere)
+        tab.opener = null;
+        tab.location.href = url;
+      } else window.location.href = url;
     } catch (e) {
       tab?.close();
       toast.error(errorMessage(e));
@@ -92,24 +101,47 @@ export function ProofDialog({ dealId, deliverable, brandName, onClose }: { dealI
 /**
  * An approved proof's undo window: a countdown, and Undo for the brand. When it ends this page asks the database to
  * release (either side may; the scheduler does it too if nobody's looking, and asking twice is harmless).
+ *
+ * The window is timed on this device's own clock (undoWindow.ts), which can still run a little ahead of the
+ * database's. So "the window hasn't ended yet" (rule P2) is an answer, not a failure: the page asks again a second
+ * later until the database agrees, instead of leaving "Releasing…" up until the scheduler's next pass.
  */
 export function ReleaseTimer({ dealId, proof, canUndo }: { dealId: string; proof: ProofRow; canUndo: boolean }) {
-  const now = useNow(250);
+  const now = useNow(250).getTime();
   const undo = useUndoApproval();
   const finalize = useFinalizeRelease();
-  const asked = useRef(false);
-  const at = proof.release_at ? new Date(proof.release_at).getTime() : 0;
-  const left = Math.max(0, Math.ceil((at - now.getTime()) / 1000));
+  const win = undoWindow(proof);
+  const left = win ? Math.max(0, Math.ceil((win.undoUntil - now) / 1000)) : 0;
   const finalizeRelease = finalize.mutate;
+  const releaseFrom = win?.releaseFrom ?? null;
+  const proofId = proof.id;
 
   useEffect(() => {
-    if (!at || asked.current) return;
-    const t = window.setTimeout(() => {
-      asked.current = true;
-      finalizeRelease({ dealId, proofId: proof.id });
-    }, Math.max(0, at - Date.now()) + 300);
-    return () => window.clearTimeout(t);
-  }, [at, dealId, proof.id, finalizeRelease]);
+    if (releaseFrom == null) return;
+    let timer = 0;
+    let tries = 0;
+    let stopped = false;
+    const ask = () => {
+      finalizeRelease(
+        { dealId, proofId },
+        {
+          onError: (e) => {
+            if (stopped) return;
+            tries += 1;
+            const early = ruleOf(e) === 'P2';
+            if (ruleOf(e) && !early) return; // undone meanwhile, or not approved any more: nothing to release
+            if (tries >= (early ? MAX_EARLY_TRIES : MAX_FAILED_TRIES)) return; // the scheduler releases what's left
+            timer = window.setTimeout(ask, early ? 1000 : Math.min(1500 * tries, 8000));
+          },
+        },
+      );
+    };
+    timer = window.setTimeout(ask, Math.max(0, releaseFrom - Date.now()) + 300);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, [releaseFrom, dealId, proofId, finalizeRelease]);
 
   return (
     <div className="g-release" role="status">

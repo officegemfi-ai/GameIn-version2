@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState, type Ref } from 'react';
+import { useLocation } from 'react-router';
 import { ActionDialog, Badge, Button, Card, Notice, TextAreaField, TimeAgo } from '@/components/ui';
 import { formatCents } from '@/lib/money';
 import { CONFIRM_RELEASE_CENTS, UNDO_SECONDS } from '@/lib/rules';
@@ -20,19 +21,21 @@ interface ItemProps {
   side: Side;
   names: Names;
   approving: boolean;
+  /** Set on the deliverable a link pointed at (…#proof-<id>): it is scrolled to and flashes once. */
+  targetRef?: Ref<HTMLLIElement>;
   onSendProof: () => void;
   onApprove: (proof: ProofRow) => void;
   onRequestChanges: (proof: ProofRow) => void;
 }
 
 /** One deliverable: its share of the money, where it stands, its proof, and the moves on it. */
-function DeliverableItem({ dealId, dl, milestone, proof, release, side, names, approving, onSendProof, onApprove, onRequestChanges }: ItemProps) {
+function DeliverableItem({ dealId, dl, milestone, proof, release, side, names, approving, targetRef, onSendProof, onApprove, onRequestChanges }: ItemProps) {
   const inEscrow = milestone?.status === 'in_escrow';
   const canDeliver = side === 'creator' && inEscrow && (dl.status === 'upcoming' || dl.status === 'changes_requested');
   const funding = milestone ? MILESTONE_STATUS[milestone.status] : null;
   const state = deliverableStatus(dl.status, inEscrow);
   return (
-    <li className="g-deliv" id={proof ? `proof-${proof.id}` : undefined}>
+    <li ref={targetRef} className={`g-deliv${targetRef ? ' is-target' : ''}`} id={proof ? `proof-${proof.id}` : undefined}>
       <div className="g-between">
         <b className="g-strong">{dl.label}</b>
         <span className="g-strong g-num">{formatCents(dl.amount_cents)}</span>
@@ -91,6 +94,17 @@ export function Deliverables({ deal: d, side, names }: { deal: DealDetail; side:
   const milestoneOf = new Map(d.milestones.map((x) => [x.id, x]));
   const releaseOf = new Map(d.releases.map((r) => [r.proof_id, r]));
 
+  // A link to one proof (a "review proof" to-do or a notification: /proofs/:id → this page #proof-<id>) lands on its
+  // deliverable, wherever it is in a long deal. The router can't do it: it looks for the element when the address
+  // changes, before the deal has loaded. This list only exists once it has, so it does it here, once per link.
+  const { hash } = useLocation();
+  const linkedProof = hash.startsWith('#proof-') ? hash.slice('#proof-'.length) : null;
+  const targetId = linkedProof ? d.proofs.find((p) => p.id === linkedProof)?.deliverable_id ?? null : null;
+  const target = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    if (targetId) target.current?.scrollIntoView?.({ block: 'center' });
+  }, [targetId]);
+
   const approveProof = (p: ProofRow) => {
     if (p.value_cents >= CONFIRM_RELEASE_CENTS) return setConfirmRelease(p);
     approve.mutate({ dealId: d.id, proofId: p.id });
@@ -113,6 +127,7 @@ export function Deliverables({ deal: d, side, names }: { deal: DealDetail; side:
                 side={side}
                 names={names}
                 approving={!!proof && approve.isPending && approve.variables?.proofId === proof.id}
+                targetRef={dl.id === targetId ? target : undefined}
                 onSendProof={() => setProofFor(dl)}
                 onApprove={approveProof}
                 onRequestChanges={(p) => {
@@ -136,7 +151,7 @@ export function Deliverables({ deal: d, side, names }: { deal: DealDetail; side:
           action="request changes"
           onAction={() => changes.mutate({ dealId: d.id, proofId: changesFor.id, note: changesNote }, { onSuccess: () => setChangesFor(null) })}
         >
-          <TextAreaField label="What needs to change" value={changesNote} maxLength={2000} onChange={(e) => setChangesNote(e.target.value)} autoFocus />
+          <TextAreaField label="What needs to change" value={changesNote} maxLength={2000} onChange={(e) => setChangesNote(e.target.value)} data-autofocus />
         </ActionDialog>
       ) : null}
       {confirmRelease ? (

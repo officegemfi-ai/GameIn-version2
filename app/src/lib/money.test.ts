@@ -45,6 +45,17 @@ describe('dollars and cents', () => {
 
   it.each(['', 'abc', '-5', '1.234', '1e3', '$', '12,34.5.6'])('rejects %s', (text) => expect(parseDollars(text)).toBeNull());
 
+  it.each([['1,000', 100000], ['1,234,567.89', 123456789], ['$ 12,000', 1200000], ['999', 99900], ['1000000', 100000000], ['100,000', 10000000], ['0500', 50000]])(
+    'takes a comma between groups of three digits as a thousands separator: %s',
+    (text, cents) => expect(parseDollars(text)).toBe(cents),
+  );
+
+  // "299,99" is $299.99 to much of the world; stripping the comma made it $29,999.00, a hundred times the offer
+  it.each(['299,99', '1,5', '0,50', '12,34', '1,2345', '1,23,456', ',500', '1,,000', '1,000,', '1.000,00', '0,500', '0,500.00', '00,500', '012,345'])(
+    'asks again rather than guess at a comma that isn’t a thousands separator: %s',
+    (text) => expect(parseDollars(text)).toBeNull(),
+  );
+
   it('shows cents back as an input value', () => {
     expect(centsToInput(29999)).toBe('299.99');
     expect(centsToInput(null)).toBe('');

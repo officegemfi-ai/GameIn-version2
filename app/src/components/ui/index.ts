@@ -7,6 +7,7 @@ export { HexAvatar, initials } from './HexAvatar';
 export { Icon, type IconName } from './Icon';
 export { ItemsEditor } from './ItemsEditor';
 export { Logo } from './Logo';
+export { ShowMore } from './ShowMore';
 export { Tabs, type TabItem } from './Tabs';
 export { TimeAgo, TimeLeft, useNow } from './Time';
 export { ToastProvider, useToast } from './Toast';

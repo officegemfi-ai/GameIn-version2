@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { ActionDialog, Button, Card, Empty, Loading, Notice, QueryError, Segmented, Stat, TextField } from '@/components/ui';
+import { ActionDialog, Button, Card, Empty, Loading, Notice, QueryError, Segmented, ShowMore, Stat, TextField } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { centsToInput, formatCents, instantPayoutFee, parseDollars } from '@/lib/money';
+import { loadedRows } from '@/lib/paging';
 import { FEE_PERCENT, INSTANT_PAYOUT_PERCENT } from '@/lib/rules';
 import { formatDate } from '@/lib/time';
 import { useSeat } from '@/features/seats/SeatProvider';
@@ -52,10 +53,12 @@ export default function WalletPage() {
       </div>
     );
   }
+  // an error only when there's nothing to show: a refresh that fails later leaves the loaded wallet on screen
+  if (summary.isLoadingError || lines.isLoadingError) return <QueryError query={summary.isLoadingError ? summary : lines} />;
   if (summary.isPending || lines.isPending) return <Loading />;
-  if (summary.isError || lines.isError) return <QueryError query={summary.isError ? summary : lines} />;
   const w = summary.data;
   const available = w?.available_cents ?? 0;
+  const history = loadedRows(lines.data);
 
   return (
     <div className="g-page">
@@ -68,7 +71,7 @@ export default function WalletPage() {
       </div>
       <Notice>Test mode: payouts are simulated. Once payments go live you’ll connect a bank account through Stripe.</Notice>
       <Card title="History" flush>
-        {lines.data.length === 0 ? (
+        {history.length === 0 ? (
           <Empty title="Nothing yet">Releases from your deals show up here.</Empty>
         ) : (
           <div className="g-scrollx">
@@ -81,7 +84,7 @@ export default function WalletPage() {
                 </tr>
               </thead>
               <tbody>
-                {lines.data.map((l, i) => (
+                {history.map((l, i) => (
                   <tr key={`${l.kind}-${l.release_id ?? l.payout_id}-${i}`}>
                     <td className="g-nowrap">{l.at ? formatDate(l.at) : ''}</td>
                     <td>
@@ -101,6 +104,7 @@ export default function WalletPage() {
                 ))}
               </tbody>
             </table>
+            <ShowMore list={lines} />
           </div>
         )}
       </Card>

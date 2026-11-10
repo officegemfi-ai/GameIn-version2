@@ -1,19 +1,24 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { Button, Card, Empty, HexAvatar, Icon, Loading, QueryError, TimeAgo } from '@/components/ui';
+import { Button, Card, Empty, HexAvatar, Icon, Loading, QueryError, ShowMore, TimeAgo } from '@/components/ui';
+import { restoreDraft, useDraft } from '@/lib/drafts';
 import { keys } from '@/lib/keys';
+import { loadedRows, type MoreToShow } from '@/lib/paging';
 import { messageTime } from '@/lib/time';
 import { otherSide, type Side } from '@/lib/types';
+import { usePageVisible } from '@/lib/usePageVisible';
+import { OtherSeat } from '@/features/seats/OtherSeat';
+import { isParty } from '@/features/seats/party';
 import { useSeat } from '@/features/seats/SeatProvider';
 import { describeEvent } from '@/features/notifications/describe';
-import { isUnread, markRead, readSeq, useConversations, useSendMessage, useThread, type ConversationListRow, type Thread } from './api';
+import { draftPlace, isUnread, markRead, newestLineKey, readSeq, THREAD_LINES, useConversations, useSendMessage, useThread, type ConversationListRow, type Thread } from './api';
 
 function otherName(c: Pick<ConversationListRow, 'brand' | 'creator'>, side: Side): string {
   return side === 'brand' ? c.creator?.display_name ?? 'Creator' : c.brand?.name ?? 'Brand';
 }
 
-function ConversationList({ rows, activeId, side }: { rows: ConversationListRow[]; activeId?: string; side: Side }) {
+function ConversationList({ rows, more, activeId, side }: { rows: ConversationListRow[]; more: MoreToShow; activeId?: string; side: Side }) {
   if (rows.length === 0) {
     return <Empty title="No conversations yet">A conversation starts with an offer or a message from a creator’s page.</Empty>;
   }
@@ -33,21 +38,43 @@ function ConversationList({ rows, activeId, side }: { rows: ConversationListRow[
           </Link>
         );
       })}
+      <ShowMore list={more} />
     </nav>
   );
 }
 
-function Timeline({ thread, side }: { thread: Thread; side: Side }) {
+function Timeline({ thread, side, onEarlier, loadingEarlier }: { thread: Thread; side: Side; onEarlier: () => void; loadingEarlier: boolean }) {
   const c = thread.conversation;
   const names = { brand: c.brand?.name ?? 'The brand', creator: c.creator?.display_name ?? 'The creator' };
+  const box = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => end.current?.scrollIntoView({ block: 'end' }), [thread.timeline.length]);
+  // follow the newest line. Keyed on the line itself, not on how many there are: a thread shows its last 200, so
+  // once it's that long a new line pushes an old one out and the count never changes again
+  const newestKey = newestLineKey(thread.timeline);
+  useEffect(() => end.current?.scrollIntoView?.({ block: 'end' }), [newestKey]);
+  // Earlier lines arrive above what's being read. The line that was at the top stays where it was: the distance to
+  // the bottom is noted when they're asked for and put back when they're in.
+  const fromBottom = useRef<number | null>(null);
+  const oldestKey = thread.timeline[0] ? `${thread.timeline[0].kind}:${thread.timeline[0].ref}` : '';
+  useLayoutEffect(() => {
+    if (fromBottom.current !== null && box.current) box.current.scrollTop = box.current.scrollHeight - fromBottom.current;
+    fromBottom.current = null;
+  }, [oldestKey]);
+  const showEarlier = () => {
+    if (box.current) fromBottom.current = box.current.scrollHeight - box.current.scrollTop;
+    onEarlier();
+  };
   const lastMine = [...thread.timeline].reverse().find((r) => r.kind === 'message' && r.side === side);
   const lastAny = [...thread.timeline].reverse().find((r) => r.kind === 'message');
   const seen = lastMine && lastAny === lastMine && readSeq(c, otherSide(side)) >= c.last_message_seq;
   return (
-    <div className="g-thread" aria-live="polite">
+    <div className="g-thread" aria-live="polite" ref={box}>
       {thread.timeline.length === 0 ? <p className="g-muted g-small" style={{ textAlign: 'center' }}>Say hello.</p> : null}
+      {thread.earlier ? (
+        <div className="g-showmore">
+          <Button size="sm" variant="ghost" loading={loadingEarlier} onClick={showEarlier}>show earlier</Button>
+        </div>
+      ) : null}
       {thread.timeline.map((r) =>
         r.kind === 'message' ? (
           <div key={'m' + r.ref} className={`g-bubble${r.side === side ? ' is-mine' : ''}`}>
@@ -78,21 +105,31 @@ function EventLine({ row, names, side }: { row: Thread['timeline'][number]; name
   );
 }
 
-function Composer({ thread, side }: { thread: Thread; side: Side }) {
+/** The box a message is written in. Exported for its tests. */
+export function Composer({ thread, side }: { thread: Thread; side: Side }) {
   const c = thread.conversation;
-  const [text, setText] = useState('');
+  // What's typed belongs to this conversation, written from this side (lib/drafts.ts), not to the box: looking at
+  // another conversation doesn't take it along, and coming back finds it.
+  const place = draftPlace(c.id, side);
+  const [text, setText] = useDraft(place);
   const send = useSendMessage(c.id);
   const name = otherName(c, side);
   const submit = () => {
     const body = text.trim();
     if (!body || send.isPending) return;
-    send.mutate({ brandId: c.brand_id, creatorId: c.creator_id, as: side, body }, { onSuccess: () => setText('') });
+    // The box empties as the message leaves, so the next one can be typed while this one is on its way. (Emptying it
+    // when the answer came back wiped whatever had been typed in between.) If it doesn't arrive, it goes back in its
+    // conversation's box, ahead of anything typed since, and waits there even if the person has moved on meanwhile.
+    // (That's why this isn't mutate's own onError: that one is dropped once this box is off screen.)
+    setText('');
+    void send.mutateAsync({ brandId: c.brand_id, creatorId: c.creator_id, as: side, body }).catch(() => restoreDraft(place, body));
   };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      submit();
-    }
+    // Enter sends and Shift+Enter starts a new line. Enter that picks a word in an input method (Japanese, Chinese,
+    // Korean and others compose text before committing it) belongs to the input method: it must not send half a word.
+    if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    submit();
   };
   return (
     <div className="g-composer">
@@ -117,24 +154,36 @@ export default function MessagesPage() {
   const { id } = useParams();
   const seat = useSeat();
   const list = useConversations(seat);
-  const thread = useThread(id);
+  // a thread opens on its newest lines; "show earlier" asks for more of this conversation, and another starts afresh
+  const [asked, setAsked] = useState<{ id?: string; lines: number }>({ lines: THREAD_LINES });
+  const lines = asked.id === id ? asked.lines : THREAD_LINES;
+  const thread = useThread(id, lines);
   const queryClient = useQueryClient();
-  const rows = useMemo(() => list.data ?? [], [list.data]);
+  const rows = loadedRows(list.data);
 
-  // opening a thread marks it read for this seat, up to the last message shown
+  // Reading a thread marks it read for this seat, up to the last message shown. "Reading" means the seat is one of
+  // the thread's two parties and the page is actually being looked at: a thread left open in a background tab must
+  // not tell the other side "seen" (or clear this side's unread badge) for a message nobody has seen yet. When the
+  // tab comes back to the front, this runs again.
   const conv = thread.data?.conversation;
   const lastSeq = conv?.last_message_seq ?? 0;
   const myRead = conv ? readSeq(conv, seat.side) : 0;
   const convId = conv?.id;
+  const mine = !!conv && isParty(seat, conv);
+  const visible = usePageVisible();
   useEffect(() => {
-    if (!convId || lastSeq <= myRead) return;
-    void markRead(convId, seat.side, lastSeq).then(() => {
-      void queryClient.invalidateQueries({ queryKey: keys.conversations(seat) });
-      void queryClient.invalidateQueries({ queryKey: keys.todos(seat) });
-    });
-  }, [convId, lastSeq, myRead, seat, queryClient]);
-
-  const partyMismatch = conv && (seat.side === 'brand' ? conv.brand_id !== seat.id : conv.creator_id !== seat.id);
+    if (!convId || !mine || !visible || lastSeq <= myRead) return;
+    void markRead(convId, seat.side, lastSeq).then(
+      () => {
+        void queryClient.invalidateQueries({ queryKey: keys.conversations(seat) });
+        void queryClient.invalidateQueries({ queryKey: keys.todos(seat) });
+        void queryClient.invalidateQueries({ queryKey: keys.todoCounts(seat) });
+      },
+      () => {
+        // not marked this time (the connection, usually): the thread stays unread and the next look tries again
+      },
+    );
+  }, [convId, mine, visible, lastSeq, myRead, seat, queryClient]);
 
   return (
     <div className={`g-page g-messages${id ? ' has-thread' : ''}`}>
@@ -143,19 +192,19 @@ export default function MessagesPage() {
           <div className="g-messages__head">
             <h1>Messages</h1>
           </div>
-          {list.isPending ? <Loading /> : list.isError ? <QueryError query={list} /> : <ConversationList rows={rows} activeId={id} side={seat.side} />}
+          {list.isPending ? <Loading /> : list.isLoadingError ? <QueryError query={list} /> : <ConversationList rows={rows} more={list} activeId={id} side={seat.side} />}
         </Card>
         <Card flush className="g-messages__thread">
           {!id ? (
             <Empty title="Choose a conversation">Offers, payments and proof show up in the thread too.</Empty>
           ) : thread.isPending ? (
             <Loading />
-          ) : thread.isError ? (
+          ) : thread.isLoadingError ? (
             <div style={{ padding: 16 }}>
               <QueryError query={thread} />
             </div>
-          ) : partyMismatch ? (
-            <Empty title="This conversation belongs to another seat">Switch seats from the top bar to reply as the other side.</Empty>
+          ) : !mine ? (
+            <OtherSeat bare what="conversation" of={thread.data.conversation} />
           ) : (
             <>
               <div className="g-messages__head g-row">
@@ -170,8 +219,9 @@ export default function MessagesPage() {
                   ) : null}
                 </div>
               </div>
-              <Timeline thread={thread.data} side={seat.side} />
-              <Composer thread={thread.data} side={seat.side} />
+              <Timeline thread={thread.data} side={seat.side} onEarlier={() => setAsked({ id, lines: lines + THREAD_LINES })} loadingEarlier={thread.isPlaceholderData} />
+              {/* a box of its own per conversation and side: one that is still sending doesn't hold up the next */}
+              <Composer key={draftPlace(thread.data.conversation.id, seat.side)} thread={thread.data} side={seat.side} />
             </>
           )}
         </Card>

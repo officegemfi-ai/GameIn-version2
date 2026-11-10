@@ -1,7 +1,8 @@
 import { Link } from 'react-router';
-import { Badge, Button, Card, Empty, Loading, Notice, QueryError, Stat } from '@/components/ui';
+import { Badge, Button, Card, Empty, Loading, Notice, QueryError, ShowMore, Skeleton, Stat } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { formatCents } from '@/lib/money';
+import { loadedRows } from '@/lib/paging';
 import { formatDate } from '@/lib/time';
 import { useSeat } from '@/features/seats/SeatProvider';
 import { useSimulatePayment } from '@/features/deals/api';
@@ -13,6 +14,7 @@ export default function PaymentsPage() {
   const brandId = seat.side === 'brand' ? seat.id : null;
   const money = useBrandMoney(brandId);
   const payments = useBrandPayments(brandId);
+  const rows = loadedRows(payments.data);
   const simulate = useSimulatePayment();
 
   if (!brandId) {
@@ -27,20 +29,30 @@ export default function PaymentsPage() {
   return (
     <div className="g-page">
       <PageHeader title="Payments" subtitle={`${seat.name}’s money in escrow, and every payment into it.`} />
-      {money.isError ? <QueryError query={money} /> : null}
-      <div className="g-grid-4">
-        <Stat label="In escrow" value={formatCents(m?.in_escrow_cents)} tone="mint" note="released when you approve" />
-        <Stat label="To fund" value={formatCents(m?.not_funded_cents)} tone={(m?.not_funded_cents ?? 0) > 0 ? 'coral' : undefined} note="accepted, not funded yet" />
-        <Stat label="Released" value={formatCents(m?.released_cents)} note="paid to creators" />
-        <Stat label="Paid" value={formatCents(m?.paid_cents)} note={`incl. ${formatCents(m?.fees_cents)} in fees`} />
-      </div>
+      {/* the figures only once they're known: a request that failed or hasn't answered isn't "$0.00" */}
+      {money.isLoadingError ? (
+        <QueryError query={money} />
+      ) : money.isPending ? (
+        <div className="g-grid-4" aria-busy="true">
+          {Array.from({ length: 4 }, (_, i) => (
+            <Skeleton key={i} height={104} />
+          ))}
+        </div>
+      ) : (
+        <div className="g-grid-4">
+          <Stat label="In escrow" value={formatCents(m?.in_escrow_cents)} tone="mint" note="released when you approve" />
+          <Stat label="To fund" value={formatCents(m?.not_funded_cents)} tone={(m?.not_funded_cents ?? 0) > 0 ? 'coral' : undefined} note="accepted, not funded yet" />
+          <Stat label="Released" value={formatCents(m?.released_cents)} note="paid to creators" />
+          <Stat label="Paid" value={formatCents(m?.paid_cents)} note={`incl. ${formatCents(m?.fees_cents)} in fees`} />
+        </div>
+      )}
       <Notice>Test mode: cards succeed at once and bank payments clear when you mark them. Nothing is charged.</Notice>
       <Card title="Payments" flush>
         {payments.isPending ? (
           <Loading />
-        ) : payments.isError ? (
+        ) : payments.isLoadingError ? (
           <QueryError query={payments} />
-        ) : payments.data.length === 0 ? (
+        ) : rows.length === 0 ? (
           <Empty title="No payments yet">You fund escrow from a deal once the creator accepts.</Empty>
         ) : (
           <div className="g-scrollx">
@@ -55,7 +67,7 @@ export default function PaymentsPage() {
                 </tr>
               </thead>
               <tbody>
-                {payments.data.map((p) => {
+                {rows.map((p) => {
                   const clearing = p.status === 'processing' || p.status === 'awaiting_wire';
                   const st = paymentStatus(p.status);
                   return (
@@ -85,6 +97,7 @@ export default function PaymentsPage() {
                 })}
               </tbody>
             </table>
+            <ShowMore list={payments} />
           </div>
         )}
       </Card>
