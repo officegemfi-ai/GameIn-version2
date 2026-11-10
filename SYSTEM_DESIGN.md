@@ -23,9 +23,9 @@ which grows a copy of GameIn to 200,000 creators and measures each screen's requ
 
 ## 1. The short version
 
-GameIn is small today (November 2026): 6 creators, 6 brands, 5 deals, a 19 MB database. Everything is instant. The question for a
-design is what the same system does with 200,000 creators and a million offers, and what has to be true of it for
-the answer to be "the same as today".
+GameIn is small today (November 2026): 6 creators, 6 brands, 5 deals, a 19 MB database. Everything is instant.
+The question for a design is what the same system does with 200,000 creators and a million offers, and what has to
+be true of it for the answer to be "the same as today".
 
 So a copy was grown to that size, and every request every screen sends was measured on it. What gave way first:
 
