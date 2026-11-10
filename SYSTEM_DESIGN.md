@@ -754,7 +754,7 @@ people writing at once (covered for correctness by the race tests, not for speed
 | Stage | What | When |
 |---|---|---|
 | **One (built)** | A request costs what it shows: access rules that check a row against its own parent; an index for each question; lists a page at a time; counts from the database; unread messages written down as they happen; search as its own request; the timer found by index; commit checks that check; live updates on four tables at a bounded pace; no retry storms; a deploy that checks the database first | Now |
-| **Two** | Totals as rows; live updates sent once per change; public pages from an edge cache; old notifications put away; rate limits; keyset pages; the benchmark as a gate in CI; payments through Stripe | When one of the numbers below is reached |
+| **Two** | Totals as rows; live updates sent once per change; public pages from an edge cache; old notifications put away; the prototype's live mode retired; rate limits; keyset pages; the benchmark as a gate in CI; payments through Stripe | When one of the numbers below is reached |
 | **Three** | Read replicas; the logs split by month; a search service; a queue for notifications | When one database server is no longer enough |
 
 ### Stage two, piece by piece
@@ -766,6 +766,7 @@ people writing at once (covered for correctness by the race tests, not for speed
 | **Live updates by Broadcast** | About 300 people online at once (the Pro plan allows 500 connections), or Realtime lagging | The triggers that write an event, a message or a notification also send it once to the topics of the seats it concerns (Supabase's Broadcast from the database). A browser joins its own seats' topics and is checked once, when it joins, instead of once per change. `keysFor` and the two paces stay as they are |
 | **Public pages from an edge cache** | A creator's page or the directory gets steady traffic from visitors, or a spike is expected (a creator shares their page) | Visitors' reads go through an edge cache that keeps each answer for about a minute. Signed-in reads don't |
 | **Old notifications put away** | `notifications` passes a few gigabytes | Read notifications older than 90 days are deleted in small batches by a timer. The bell shows the latest 30 either way |
+| **The prototype's live mode retired** | Before GameIn has a thousand creators (its lists are cut off at 1,000 rows from then on) | The app replaces it. Then the eleven tables only the prototype listens to come out of the Realtime publication, so Realtime stops reading their changes at all |
 | **Rate limits** | Before opening sign-up to everyone | A per-seat limit inside `send_offer`, `pitch_offer` and `send_message`, counted by index |
 | **Keyset pages** | A thread passes a few thousand lines, or people page deep into the directory | "The 24 after this one", on the same indexes |
 | **The benchmark as a gate** | More than one person is changing how the database is read | CI builds the benchmark at a twentieth of the size and fails a pull request whose request reads a whole table or passes its page budget |
