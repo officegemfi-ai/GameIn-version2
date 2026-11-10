@@ -16,9 +16,10 @@
 --   7. Search (creators, brands) and a creator's page by its handle.
 --
 -- Safe to run on a database in use: it adds indexes and one small table (filled here from the messages nobody has
--- read yet), and replaces functions, views and policies. No existing row is changed. The app that is live today
--- keeps working unchanged against it (nothing it reads is removed or renamed). While an index is being built, writes
--- to its table wait: no time at all on today's database, and 33 seconds for the whole file on the 7 GB test one.
+-- read yet), and replaces functions, views and policies. No existing row is changed. What is live when it is applied
+-- (the prototype's live mode, the app as it was before) keeps working unchanged against it: nothing either reads is
+-- removed or renamed. While an index is being built, writes to its table wait: no time at all on today's database,
+-- and 33 seconds for the whole file on the 7 GB test one.
 --
 -- Two things about row-level security decide how the indexes below are shaped. Both were measured, not assumed:
 --   * A condition someone's request adds can only steer an index on a table with access rules if its comparison is

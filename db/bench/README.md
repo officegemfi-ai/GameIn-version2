@@ -44,25 +44,25 @@ done
 # 3. every screen, three ways
 BEFORE="BENCH_REST=http://127.0.0.1:3002 BENCH_DB=postgres://postgres@localhost:5432/gamein_scale"
 AFTER="BENCH_REST=http://127.0.0.1:3003 BENCH_DB=postgres://postgres@localhost:5432/gamein_scale_after"
-env $BEFORE node db/bench/bench.mjs --app now  --label "Today"          --out today.json
+env $BEFORE node db/bench/bench.mjs --app now  --label "Before"         --out before.json
 env $AFTER  node db/bench/bench.mjs --app now  --label "Migration only" --out migration.json
 env $AFTER  node db/bench/bench.mjs --app next --label "Stage one"      --out stage-one.json
 
 # 4. how many people one database serves (16 people for 40 seconds each)
-env $BEFORE node db/bench/load.mjs --app now  --seconds 40 --label "Today"          --out load-today.json
+env $BEFORE node db/bench/load.mjs --app now  --seconds 40 --label "Before"         --out load-before.json
 env $AFTER  node db/bench/load.mjs --app now  --seconds 40 --label "Migration only" --out load-migration.json
 env $AFTER  node db/bench/load.mjs --app next --seconds 40 --label "Stage one"      --out load-stage-one.json
 
-# 5. side by side
-node db/bench/compare.mjs today.json migration.json stage-one.json load-*.json > db/bench/RESULTS.md
+# 5. side by side (a load test goes under the run with the same label)
+node db/bench/compare.mjs before.json migration.json stage-one.json load-*.json > db/bench/RESULTS.md
 ```
 
 `compare.mjs --note "…"` puts a paragraph under the introduction, for whatever a reader of the table has to know
 (RESULTS.md has one about its middle column).
 
-`--app now` is the app as it is on `main`; `--app next` is the app on the branch being measured. When a screen's query
+`--app now` sends what the app sent before stage one, and `--app next` what it sends with it. When a screen's query
 changes in `app/src/features/*/api.ts`, change it in `requests.mjs` too: the benchmark only tells the truth about
-requests the app really sends. `--app prototype` sends what the single-file prototype's live mode sends (everything a
+requests the app really sends. To measure a later change against stage one, give `requests.mjs` a third version. `--app prototype` sends what the single-file prototype's live mode sends (everything a
 person may see, in one load).
 
 `bench.mjs --only offers --persona agency` runs part of it. Moves (send a message, accept an offer, fund escrow) are

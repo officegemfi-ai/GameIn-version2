@@ -17,8 +17,10 @@ for (let i = 2; i < process.argv.length; i++) {
 }
 const given = files.map((f) => JSON.parse(fs.readFileSync(f, 'utf8')));
 const runs = given.filter((r) => r.personas);
-const loads = given.filter((r) => r.screensPerSecond !== undefined);
 if (runs.length < 2) throw new Error('give at least two runs to compare');
+// a load test goes under the run with the same label, whatever order the files were given in
+const column = (x) => { const i = runs.findIndex((r) => (r.label || r.app) === (x.label || x.app)); return i < 0 ? runs.length : i; };
+const loads = given.filter((r) => r.screensPerSecond !== undefined).sort((a, b) => column(a) - column(b));
 const n = (x) => Number(x).toLocaleString('en-US');
 const ms = (x) => (x >= 1000 ? `${(x / 1000).toFixed(1)} s` : `${Math.max(1, Math.round(x))} ms`);
 const LIMIT = { signedIn: '8 s', visitor: '3 s' };

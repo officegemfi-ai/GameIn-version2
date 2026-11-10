@@ -100,7 +100,7 @@ async function person() {
   }
 }
 
-console.log(`${PEOPLE} people for ${SECONDS} s, the ${APP === 'next' ? 'app with stage one' : 'app as it is on main'}, against ${REST}`);
+console.log(`${PEOPLE} people for ${SECONDS} s, the ${APP === 'next' ? 'app with stage one' : 'app as it was before stage one'}, against ${REST}`);
 const startedAt = performance.now();
 setTimeout(() => (running = false), SECONDS * 1000);
 await Promise.all(Array.from({ length: PEOPLE }, person));

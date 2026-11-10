@@ -23,7 +23,7 @@ which grows a copy of GameIn to 200,000 creators and measures each screen's requ
 
 ## 1. The short version
 
-GameIn is small today: 6 creators, 6 brands, 5 deals, a 19 MB database. Everything is instant. The question for a
+GameIn is small today (November 2026): 6 creators, 6 brands, 5 deals, a 19 MB database. Everything is instant. The question for a
 design is what the same system does with 200,000 creators and a million offers, and what has to be true of it for
 the answer to be "the same as today".
 
@@ -645,7 +645,7 @@ test server is Postgres 16; the live one is 17).
 - 200,000 creators, 20,000 brands, 1,000,000 offers, 500,700 deals, 5,000,000 messages, 7,179,281 notifications.
 - The machine: 2 cores, 7 GB of memory, less than the database. Compare times within the benchmark, not with
   another machine. Pages are the same anywhere.
-- Three columns: the app as it is on `main`; the same app on the migrated database; stage one.
+- Three columns: the app as it was before stage one; the same app on the migrated database; stage one.
 
 ### An ordinary brand: 31 offers, 13 deals
 
@@ -718,8 +718,8 @@ about 36.
 
 ### The middle column: the migration without the app
 
-The app that is live today works on the migrated database, and most of its screens are already as quick as stage
-one's there. Two of its requests are slower at this size, because of how they are asked: its creator dashboard
+The app as it was before stage one works on the migrated database, and most of its screens are already as quick as
+stage one's there. Two of its requests are slower at this size, because of how they are asked: its creator dashboard
 asks for deliverables without naming a deal, which the new access rules check one row at a time (2.5 s), and its
 search walks the directory in name order (0.2 s when nothing matches). The new app asks for both another way. On
 the live database as it is today, with five deals, neither can be felt, so the migration can go first and the app

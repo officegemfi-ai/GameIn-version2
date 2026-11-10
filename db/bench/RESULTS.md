@@ -2,15 +2,15 @@
 
 Made by `db/bench/compare.mjs` from runs of `db/bench/bench.mjs` (2026-11-10). See [README.md](README.md) for how to make it again and how to read it.
 
-The database: 200,000 creators, 20,000 brands, 1,000,000 offers, 500,700 deals, 5,000,000 messages, 7,179,281 notifications; 7405 MB (Today), 7752 MB (Migration only (today's app)), 7753 MB (Stage one (migration and app)).
+The database: 200,000 creators, 20,000 brands, 1,000,000 offers, 500,700 deals, 5,000,000 messages, 7,179,281 notifications; 7405 MB (Before stage one), 7752 MB (The migration alone (the app as it was)), 7753 MB (Stage one (migration and app)).
 
 A cell is one screen: how long the person waits for it, and how many 8 kB pages the database touched for all of its requests. The times are from one machine (2 cores, 7 GB of memory: about a Supabase Large); the pages are the same on any machine, and on a small one each page that isn’t in memory is a read from disk.
 
-The middle column is the app as it is on `main`, on the migrated database: what is live between applying the migration and publishing the app that goes with it. Most of its screens are already quick there. Two of its requests get slower at this size, because of how they are asked. The creator dashboard’s “ready to deliver” asks for deliverables without naming a deal, so the new access rules check every deliverable on GameIn one by one (2.5 s). And a search walks the directory in name order until it has a page of matches: all of it, when there are none (0.2 s). Stage one’s app asks for both another way. On the live database as it is today (five deals) neither can be felt; at this size the migration and the app would go out together.
+The middle column is the app as it was before stage one, on the migrated database: what runs between applying the migration and publishing the app that goes with it. Most of its screens are already quick there. Two of its requests get slower at this size, because of how they are asked. The creator dashboard’s “ready to deliver” asks for deliverables without naming a deal, so the new access rules check every deliverable on GameIn one by one (2.5 s). And a search walks the directory in name order until it has a page of matches: all of it, when there are none (0.2 s). Stage one’s app asks for both another way. On the live database as it is today (five deals) neither can be felt; at this size the migration and the app would go out together.
 
 ## An ordinary brand (the middle of the range): 31 offers, 13 deals, 31 conversations, 62 notifications
 
-| Screen | Today | Migration only (today's app) | Stage one (migration and app) |
+| Screen | Before stage one | The migration alone (the app as it was) | Stage one (migration and app) |
 |---|---|---|---|
 | every page | 532 ms · 92,556 pages | 5 ms · 543 pages | 8 ms · 680 pages |
 | dashboard | 228 ms · 101,250 pages | 4 ms · 946 pages | 6 ms · 1,375 pages |
@@ -28,7 +28,7 @@ The middle column is the app as it is on `main`, on the migrated database: what 
 
 ## An ordinary creator (the middle of the range): 2 offers, 0 deals, 2 conversations, 3 notifications
 
-| Screen | Today | Migration only (today's app) | Stage one (migration and app) |
+| Screen | Before stage one | The migration alone (the app as it was) | Stage one (migration and app) |
 |---|---|---|---|
 | every page | 154 ms · 33,619 pages | 4 ms · 58 pages | 6 ms · 194 pages |
 | dashboard | 217 ms · 35,513 pages | 2.5 s · 6,033,856 pages | 4 ms · 53 pages |
@@ -46,13 +46,13 @@ The middle column is the app as it is on `main`, on the migrated database: what 
 
 ## Signed up today, nothing yet
 
-| Screen | Today | Migration only (today's app) | Stage one (migration and app) |
+| Screen | Before stage one | The migration alone (the app as it was) | Stage one (migration and app) |
 |---|---|---|---|
 | every page | 4 ms · 322 pages | 4 ms · 9 pages | 4 ms · 9 pages |
 
 ## The busiest creator on GameIn: 7,636 offers, 3,826 deals, 4,834 conversations, 22,789 notifications
 
-| Screen | Today | Migration only (today's app) | Stage one (migration and app) |
+| Screen | Before stage one | The migration alone (the app as it was) | Stage one (migration and app) |
 |---|---|---|---|
 | every page | 2.8 s · 271,225 pages | 14 ms · 5,482 pages | 24 ms · 7,392 pages |
 | dashboard | 495 ms · 309,169 pages · **answer cut off at 1,000 rows** | 2.5 s · 6,430,602 pages · **answer cut off at 1,000 rows** | 107 ms · 234,327 pages |
@@ -71,7 +71,7 @@ The middle column is the app as it is on `main`, on the migrated database: what 
 
 ## One person with a creator profile and six brands: 9,566 offers, 4,781 deals, 8,620 conversations, 71,436 notifications
 
-| Screen | Today | Migration only (today's app) | Stage one (migration and app) |
+| Screen | Before stage one | The migration alone (the app as it was) | Stage one (migration and app) |
 |---|---|---|---|
 | every page | 1.4 s · 926,106 pages · **answer cut off at 1,000 rows** | 35 ms · 26,835 pages · **answer cut off at 1,000 rows** | 30 ms · 28,804 pages |
 | dashboard | 393 ms · 278,373 pages · **answer cut off at 1,000 rows** | 99 ms · 222,185 pages · **answer cut off at 1,000 rows** | 107 ms · 87,527 pages |
@@ -89,7 +89,7 @@ The middle column is the app as it is on `main`, on the migrated database: what 
 
 ## The busiest brand on GameIn (an agency): 36,886 offers, 18,685 deals, 29,068 conversations, 93,758 notifications
 
-| Screen | Today | Migration only (today's app) | Stage one (migration and app) |
+| Screen | Before stage one | The migration alone (the app as it was) | Stage one (migration and app) |
 |---|---|---|---|
 | every page | 1.8 s · 1,197,739 pages · **answer cut off at 1,000 rows** | 31 ms · 11,290 pages · **answer cut off at 1,000 rows** | 123 ms · 108,701 pages |
 | dashboard | 626 ms · 342,517 pages · **answer cut off at 1,000 rows** | 427 ms · 393,343 pages · **answer cut off at 1,000 rows** | 409 ms · 334,569 pages |
@@ -107,7 +107,7 @@ The middle column is the app as it is on `main`, on the migrated database: what 
 
 ## GameIn staff: 31 offers, 13 deals, 31 conversations, 0 notifications
 
-| Screen | Today | Migration only (today's app) | Stage one (migration and app) |
+| Screen | Before stage one | The migration alone (the app as it was) | Stage one (migration and app) |
 |---|---|---|---|
 | every page | 1.5 s · 50,310 pages | 4 ms · 184 pages | 12 ms · 320 pages |
 | dashboard | 1.6 s · 54,459 pages | 3 ms · 718 pages | 8 ms · 1,174 pages |
@@ -125,7 +125,7 @@ The middle column is the app as it is on `main`, on the migrated database: what 
 
 ## Public pages and search
 
-| Request | Today | Migration only (today's app) | Stage one (migration and app) |
+| Request | Before stage one | The migration alone (the app as it was) | Stage one (migration and app) |
 |---|---|---|---|
 | landing page · featured creators | 126 ms · 7,478 pages | 2 ms · 33 pages | 3 ms · 33 pages |
 | a creator’s page · the creator, by handle | 111 ms · 7,415 pages | 2 ms · 89 pages | 3 ms · 89 pages |
@@ -141,7 +141,7 @@ The middle column is the app as it is on `main`, on the migrated database: what 
 
 The slowest of each move across the people above (each is one transaction; measured, then rolled back).
 
-| Move | Today | Migration only (today's app) | Stage one (migration and app) |
+| Move | Before stage one | The migration alone (the app as it was) | Stage one (migration and app) |
 |---|---|---|---|
 | send a message | 5 ms | 9 ms | 8 ms |
 | send an offer | 6 ms | 6 ms | 4 ms |
@@ -154,7 +154,7 @@ The slowest of each move across the people above (each is one transaction; measu
 
 ## Scheduled jobs
 
-| Job | Today | Migration only (today's app) | Stage one (migration and app) |
+| Job | Before stage one | The migration alone (the app as it was) | Stage one (migration and app) |
 |---|---|---|---|
 | release what is due (every 10 s) | 1.0 s · 409,218 pages | 1 ms · 3 pages | 1 ms · 3 pages |
 | expire old offers (every minute) | 1 ms · 2 pages | 1 ms · 2 pages | 1 ms · 2 pages |
@@ -163,7 +163,7 @@ The slowest of each move across the people above (each is one transaction; measu
 
 `db/bench/load.mjs`: 16 simulated people open the dashboard, offers, deals and messages one after another without a pause, as accounts picked at random (1 visit in 100 is one of the three busiest), for 40 seconds. The people, the API and the database share the machine’s two cores: a database with a server to itself serves more.
 
-| | Today | Migration only (today's app) | Stage one (migration and app) |
+| | Before stage one | The migration alone (the app as it was) | Stage one (migration and app) |
 |---|---|---|---|
 | Screens served a second | 3.6 | 5.3 | 127.5 |
 | Half the screens took under | 3.3 s | 460 ms | 104 ms |
@@ -174,7 +174,7 @@ The slowest of each move across the people above (each is one transaction; measu
 
 ## Every request
 
-<details><summary>Today</summary>
+<details><summary>Before stage one</summary>
 
 **the busiest brand on GameIn (an agency)**
 
@@ -383,7 +383,7 @@ The slowest of each move across the people above (each is one transaction; measu
 
 </details>
 
-<details><summary>Migration only (today's app)</summary>
+<details><summary>The migration alone (the app as it was)</summary>
 
 **the busiest brand on GameIn (an agency)**
 

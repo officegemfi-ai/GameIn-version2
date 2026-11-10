@@ -2,7 +2,7 @@
 // (app/src/features/*/api.ts), and how to send them as one of the people in the scale database. Used by bench.mjs
 // (what each request costs) and load.mjs (how many people one database serves).
 //
-//   now        the app on main today
+//   now        the app before stage one
 //   next       the app with stage one (bounded lists, counts from the database, search as its own request)
 //   prototype  the single-file prototype's live mode: everything the person may see, in one load (live/gamein-live.js)
 import crypto from 'node:crypto';

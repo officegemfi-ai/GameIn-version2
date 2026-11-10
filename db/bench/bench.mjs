@@ -3,7 +3,7 @@
 //
 //   node db/bench/bench.mjs --app now|next|prototype --out results.json [--label before] [--only dashboard] [--persona agency] [--runs 5]
 //
-//   --app              whose requests: the app on main today (now, the default), the app with stage one (next), or the
+//   --app              whose requests: the app before stage one (now, the default), the app with stage one (next), or the
 //                      prototype's live mode (prototype)
 //   BENCH_REST         the API (PostgREST) in front of the scale database       default http://127.0.0.1:3002
 //   BENCH_DB           the scale database, as its owner (to look up who to sign in as)  default postgres://postgres@localhost:5432/gamein_scale
@@ -147,7 +147,7 @@ const show = (m) => {
   console.log(`  ${what} ${m.ms.toFixed(0).padStart(6)} ms  ${db}  ${String(m.rows ?? '').padStart(5)} rows  ${m.refused ? `(refused: ${m.refused})` : notes}`);
 };
 
-console.log(`the ${APP === 'prototype' ? 'prototype’s live mode' : APP === 'next' ? 'app with stage one' : 'app as it is on main'}, against ${REST}`);
+console.log(`the ${APP === 'prototype' ? 'prototype’s live mode' : APP === 'next' ? 'app with stage one' : 'app as it was before stage one'}, against ${REST}`);
 for (const p of personas) {
   if (args.persona && args.persona !== p.name) continue;
   console.log(`\n${p.name}: ${p.about}${p.size ? ` — ${p.size.offers.toLocaleString()} offers, ${p.size.deals.toLocaleString()} deals, ${p.size.conversations.toLocaleString()} conversations, ${p.size.notifications.toLocaleString()} notifications` : ''}`);
