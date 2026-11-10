@@ -5,7 +5,8 @@ import { Icon, TimeAgo } from '@/components/ui';
 import { keys } from '@/lib/keys';
 import { lastNotificationAt } from '@/lib/realtime';
 import { useUser } from '@/features/auth/AuthProvider';
-import { useSeat } from '@/features/seats/SeatProvider';
+import { isParty, notifiedSeat } from '@/features/seats/party';
+import { useSeat, useSeats } from '@/features/seats/SeatProvider';
 import { describeEvent } from './describe';
 import { markNotificationsRead, useNotifications, type NotificationItem } from './api';
 
@@ -25,6 +26,7 @@ function line(n: NotificationItem, viewer: 'brand' | 'creator') {
 export function NotificationBell() {
   const user = useUser();
   const seat = useSeat();
+  const { seats, setSeat } = useSeats();
   const queryClient = useQueryClient();
   const { data } = useNotifications(user.id);
   const [open, setOpen] = useState(false);
@@ -34,22 +36,31 @@ export function NotificationBell() {
   // The safety net under Realtime: a notification newer than the last one seen means the screen may be behind.
   // Realtime brings a notification together with the rows it's about, and the screens those rows touch refresh at
   // once; so refresh what hasn't refreshed since it arrived (or since now, when it came some other way), not all of it.
+  // "The last one seen" starts with the first answer, whatever it holds: an account's very first notification is as
+  // much news as its hundredth.
+  const loaded = data !== undefined;
   const newest = data?.[0]?.id ?? 0;
-  const seen = useRef(newest);
+  const seen = useRef<number | null>(null);
   useEffect(() => {
-    if (newest > seen.current && seen.current > 0) {
+    if (!loaded) return;
+    if (seen.current !== null && newest > seen.current) {
       const arrived = lastNotificationAt();
       const since = Date.now() - arrived < CAUGHT_UP_MS ? arrived : Date.now();
       void queryClient.invalidateQueries({ refetchType: 'active', predicate: (q) => q.state.fetchStatus !== 'fetching' && q.state.dataUpdatedAt < since });
     }
-    seen.current = Math.max(seen.current, newest);
-  }, [newest, queryClient]);
+    seen.current = Math.max(seen.current ?? 0, newest);
+  }, [loaded, newest, queryClient]);
 
   // opening the bell marks what's in it as read
   useEffect(() => {
     if (!open || unread === 0) return;
     const t = window.setTimeout(() => {
-      void markNotificationsRead().then(() => queryClient.invalidateQueries({ queryKey: keys.notifications(user.id) }));
+      void markNotificationsRead().then(
+        () => queryClient.invalidateQueries({ queryKey: keys.notifications(user.id) }),
+        () => {
+          // not marked this time: they stay new, and opening the bell again tries again
+        },
+      );
     }, 1200);
     return () => window.clearTimeout(t);
   }, [open, unread, queryClient, user.id]);
@@ -86,18 +97,27 @@ export function NotificationBell() {
             <p className="g-muted g-small" style={{ padding: '8px 12px 12px' }}>Nothing yet. Offers, payments and proof show up here.</p>
           ) : (
             (data ?? []).map((n) => {
-              const { text, to } = line(n, seat.side);
+              // One bell serves every seat of the account. Each line is worded for the seat it was meant for, says so
+              // when that isn't the seat being acted from, and pressing it goes there as that seat (unless the
+              // current seat is a party too: then the page already works from here).
+              const meant = n.event ? notifiedSeat(seats, n.event, seat) : null;
+              const elsewhere = meant && !(meant.side === seat.side && meant.id === seat.id) ? meant : null;
+              const { text, to } = line(n, meant?.side ?? seat.side);
+              const go = () => {
+                setOpen(false);
+                if (elsewhere && n.event && !isParty(seat, n.event)) setSeat(elsewhere);
+              };
               const body = (
                 <>
                   <span className="g-dot" aria-hidden="true" />
                   <span className="g-notif__text">
                     {text}
-                    <span className="g-notif__time"> · <TimeAgo at={n.created_at} /></span>
+                    <span className="g-notif__time">{elsewhere ? ` · for ${elsewhere.name}` : ''} · <TimeAgo at={n.created_at} /></span>
                   </span>
                 </>
               );
               return to ? (
-                <Link key={n.id} to={to} className="g-notif" data-read={!!n.read_at} onClick={() => setOpen(false)}>
+                <Link key={n.id} to={to} className="g-notif" data-read={!!n.read_at} onClick={go}>
                   {body}
                 </Link>
               ) : (

@@ -26,7 +26,7 @@ export default function DiscoverPage() {
       </label>
       {q.isPending ? (
         <div className="g-grid-3">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} height={190} />)}</div>
-      ) : q.isError ? (
+      ) : q.isLoadingError ? (
         <QueryError query={q} />
       ) : creators.length === 0 ? (
         <Empty title={search ? `No creators match “${search}”` : 'No creators yet'}>Try another name or handle.</Empty>

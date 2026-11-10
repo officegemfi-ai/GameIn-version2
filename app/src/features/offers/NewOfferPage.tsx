@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { Button, Card, HexAvatar, Icon, Loading, Notice, SelectField } from '@/components/ui';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -29,6 +29,8 @@ function PartyPicker({ kind, onPick }: { kind: 'creator' | 'brand'; onPick: (p: 
     kind === 'creator'
       ? (creators.data?.pages[0] ?? []).slice(0, 8).map((c) => ({ id: c.id, name: c.display_name, sub: '@' + c.handle }))
       : (brands.data ?? []).slice(0, 8).map((b) => ({ id: b.id, name: b.name, sub: b.slug }));
+  // "nobody matches" only once the answer for what's typed is in, not while typing has paused or the search is out
+  const answered = search === text && !(kind === 'creator' ? creators.isFetching : brands.isFetching);
   return (
     <div className="g-stack-sm">
       <label className="g-search">
@@ -46,7 +48,7 @@ function PartyPicker({ kind, onPick }: { kind: 'creator' | 'brand'; onPick: (p: 
             </span>
           </button>
         ))}
-        {results.length === 0 && text ? <p className="g-muted g-small">No {kind}s match.</p> : null}
+        {results.length === 0 && text && answered ? <p className="g-muted g-small">No {kind}s match.</p> : null}
       </div>
     </div>
   );
@@ -57,21 +59,32 @@ export default function NewOfferPage() {
   const seat = useSeat();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const handle = params.get('creator');
-  const linked = useCreator(handle ?? '');
-  const [party, setParty] = useState<Party | null>(null);
+  const isBrand = seat.side === 'brand';
+  // a creator's page links here with ?creator=handle (for a brand: a creator pitches brands, not creators)
+  const handle = isBrand ? params.get('creator') : null;
+  const linked = useCreator(handle ?? '', { enabled: !!handle });
+  const [picked, setPicked] = useState<Party | null>(null);
+  const [changing, setChanging] = useState(false);
   const [terms, setTerms] = useState<Terms>({ title: '', amount: '', items: [{ label: '' }], note: '' });
   const [packageId, setPackageId] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
   const send = useSendOffer();
   const pitch = usePitchOffer();
   const myPackages = useMyPackages(seat.side === 'creator' ? seat.id : null);
-  const isBrand = seat.side === 'brand';
 
-  // a creator's page links here with ?creator=handle
-  useEffect(() => {
-    if (handle && linked.data && !party) setParty({ id: linked.data.id, name: linked.data.display_name, sub: '@' + linked.data.handle });
-  }, [handle, linked.data, party]);
+  // Who the offer is for: whoever was picked, otherwise the creator the link named, until "change" is pressed. (It
+  // is worked out, not copied into state by an effect: an effect that fills in the linked creator whenever nobody
+  // is chosen also fills it straight back in when "change" clears the choice, so the button did nothing.)
+  const fromLink: Party | null = linked.data ? { id: linked.data.id, name: linked.data.display_name, sub: '@' + linked.data.handle } : null;
+  const party = picked ?? (changing ? null : fromLink);
+  const pick = (p: Party) => {
+    setPicked(p);
+    setChanging(false);
+  };
+  const change = () => {
+    setPicked(null);
+    setChanging(true);
+  };
 
   // a pitch can start from one of the creator's packages
   const pickPackage = (id: string) => {
@@ -91,7 +104,7 @@ export default function NewOfferPage() {
     else pitch.mutate({ creatorId: seat.id, brandId: party.id, packageId: packageId || undefined, title: terms.title, amountCents, items: terms.items, note: terms.note }, done);
   };
 
-  if (handle && linked.isPending) return <Loading />;
+  if (linked.isLoading) return <Loading />;
 
   return (
     <div className="g-page g-page--narrow">
@@ -114,10 +127,10 @@ export default function NewOfferPage() {
                 <span className="g-item__sub">{party.sub}</span>
               </div>
             </div>
-            <Button variant="ghost" size="sm" onClick={() => setParty(null)}>change</Button>
+            <Button variant="ghost" size="sm" onClick={change}>change</Button>
           </div>
         ) : (
-          <PartyPicker kind={isBrand ? 'creator' : 'brand'} onPick={setParty} />
+          <PartyPicker kind={isBrand ? 'creator' : 'brand'} onPick={pick} />
         )}
       </Card>
       <Card title="Terms">

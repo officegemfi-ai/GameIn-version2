@@ -6,6 +6,7 @@ import { PITCH_HOURS, UNDO_SECONDS } from '@/lib/rules';
 import { uploadProof } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
 import { seatColumn, type PaymentMethod, type Seat, type Side } from '@/lib/types';
+import { noteApproval } from './undoWindow';
 
 const LIST = 'id, title, status, type, created_at, ends_on, brand:brands(id, name, slug), creator:creators(id, display_name, handle), deliverables(status, due_on)';
 const DETAIL = '*, brand:brands(id, name, slug), creator:creators(id, display_name, handle), milestones(*), deliverables(*), proofs(*), releases(*), ratings(*), payments(*)';
@@ -93,10 +94,18 @@ export function useSubmitProof() {
   );
 }
 
-/** Approving starts the undo window (UNDO_SECONDS); the money releases when it ends. */
+/**
+ * Approving starts the undo window (UNDO_SECONDS); the money releases when it ends. When the request left and when the
+ * answer came back are noted, so this browser can time the window on its own clock (undoWindow.ts).
+ */
 export function useApproveProof() {
   return useAction(
-    (v: { dealId: string; proofId: string }) => must(supabase.rpc('approve_proof', { p_proof: v.proofId, p_undo_seconds: UNDO_SECONDS })),
+    async (v: { dealId: string; proofId: string }) => {
+      const sentAt = Date.now();
+      const releaseAt = await must(supabase.rpc('approve_proof', { p_proof: v.proofId, p_undo_seconds: UNDO_SECONDS }));
+      noteApproval(v.proofId, releaseAt, sentAt, Date.now());
+      return releaseAt;
+    },
     { invalidate: (_r, v) => dealKeys(v.dealId) },
   );
 }

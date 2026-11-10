@@ -97,14 +97,41 @@ function NeedsYou({ tasks, empty, deals, side }: { tasks: Task[]; empty: string;
   );
 }
 
+/** What a dashboard waits for before it says anything: one of its requests. */
+interface Needed {
+  isPending: boolean;
+  isLoadingError: boolean;
+  error: unknown;
+  refetch: () => unknown;
+}
+
+/**
+ * A dashboard states things (your balance, your deals, what needs you), so it shows nothing until every request those
+ * come from has answered, and says so when one couldn't load. Without this a request that failed, or was just slower
+ * than the others, read as a fact: "$0.00 available", "No active deals", "Book your first creator".
+ * Returns what to show instead of the dashboard, or null when everything is in.
+ */
+function waitFor(needed: Needed[], title: string) {
+  const failed = needed.find((q) => q.isLoadingError);
+  if (failed) {
+    return (
+      <div className="g-page">
+        <PageHeader title={title} />
+        <QueryError query={failed} />
+      </div>
+    );
+  }
+  return needed.some((q) => q.isPending) ? <Loading /> : null;
+}
+
 function CreatorDashboard({ seat }: { seat: Seat }) {
   const todos = useTodos(seat);
   const wallet = useWalletSummary(seat.id);
   const ready = useReadyDeliverables(seat.id);
   const deals = useDeals(seat);
   const packages = useMyPackages(seat.id);
-  if (todos.isPending || deals.isPending) return <Loading />;
-  if (todos.isError) return <QueryError query={todos} />;
+  const waiting = waitFor([todos, deals, wallet, ready], `Hi, ${seat.name}`);
+  if (waiting) return waiting;
   const w = wallet.data;
   const tasks = [...todoTasks(todos.data), ...(ready.data ?? []).map(deliverTask)];
   return (
@@ -135,8 +162,8 @@ function BrandDashboard({ seat }: { seat: Seat }) {
   const todos = useTodos(seat);
   const money = useBrandMoney(seat.id);
   const deals = useDeals(seat);
-  if (todos.isPending || deals.isPending) return <Loading />;
-  if (todos.isError) return <QueryError query={todos} />;
+  const waiting = waitFor([todos, deals, money], seat.name);
+  if (waiting) return waiting;
   const m = money.data;
   const tasks = [...(deals.data ?? []).filter(owesFunding).map(fundTask), ...todoTasks(todos.data)];
   const noDeals = (deals.data ?? []).length === 0;

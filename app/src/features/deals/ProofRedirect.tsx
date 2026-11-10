@@ -8,6 +8,6 @@ export default function ProofRedirect() {
   const { id = '' } = useParams();
   const q = useProofDeal(id);
   if (q.isPending) return <Loading />;
-  if (q.isError) return <ErrorState error={errorMessage(q.error)} />;
+  if (q.isLoadingError) return <ErrorState error={errorMessage(q.error)} />;
   return <Navigate to={`/deals/${q.data.deal_id}#proof-${id}`} replace />;
 }

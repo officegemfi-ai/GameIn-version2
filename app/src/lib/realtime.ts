@@ -1,4 +1,4 @@
-import type { QueryClient, QueryKey } from '@tanstack/react-query';
+import type { Query, QueryClient, QueryKey } from '@tanstack/react-query';
 import { affected, LIVE_SCOPES, scopes } from './keys';
 import { supabase } from './supabase';
 
@@ -105,11 +105,21 @@ export function startRealtime(userId: string, queryClient: QueryClient, options:
   };
   // what Realtime would have refreshed (offers, deals, money, messages...), not the directory or the account's seats
   const liveKinds = new Set(LIVE_SCOPES.map((s) => s[0]));
-  const refetchActive = () => void queryClient.invalidateQueries({ refetchType: 'active', predicate: (q) => liveKinds.has(q.queryKey[0]) });
+  const isLive = (q: Query) => liveKinds.has(q.queryKey[0]);
+  // back after a drop: a refresh already on its way may have left before the change it missed, so it starts over
+  const refetchActive = () => void queryClient.invalidateQueries({ refetchType: 'active', predicate: isLive });
+  // A tick while Realtime is down. Nothing is known to have changed, so:
+  //   * a refresh still on its way is left to land (starting it over every tick meant that on a connection slower
+  //     than the tick none ever did);
+  //   * a screen that couldn't load at all keeps its error and its "try again" (asking again every tick only swapped
+  //     the message for a spinner and back). Coming back online, back to the tab, or Realtime returning asks again.
+  const couldNotLoad = (q: Query) => q.state.status === 'error' && q.state.data === undefined;
+  const pollActive = () =>
+    void queryClient.invalidateQueries({ refetchType: 'active', predicate: (q) => isLive(q) && !couldNotLoad(q) }, { cancelRefetch: false });
   const startPolling = () => {
     if (poll || stopped) return;
     setState('polling');
-    poll = setInterval(refetchActive, pollMs);
+    poll = setInterval(pollActive, pollMs);
   };
   const stopPolling = () => {
     if (poll) clearInterval(poll);

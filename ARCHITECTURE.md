@@ -95,8 +95,8 @@ GameIn-version2/
 │  │  ├─ lib/                   ← framework-free modules
 │  │  │  ├─ supabase.ts         ← the typed client
 │  │  │  ├─ env.ts              ← the Supabase URL and key, the base path
-│  │  │  ├─ db.ts               ← must/maybe/one: a response's data, or its error thrown
-│  │  │  ├─ queryClient.ts      ← cache times, which errors are worth a retry
+│  │  │  ├─ db.ts               ← must/maybe/one: a response's data, or its error thrown (with its HTTP status)
+│  │  │  ├─ queryClient.ts      ← cache times, which errors are worth a retry (one layer retries, not two)
 │  │  │  ├─ database.types.ts   ← generated from the database (supabase gen types)
 │  │  │  ├─ types.ts            ← app types: Side, Seat, Item, row aliases
 │  │  │  ├─ money.ts            ← cents, formatting, the fee formulas (mirror the database's)
@@ -107,11 +107,13 @@ GameIn-version2/
 │  │  │  ├─ keys.ts             ← query keys, their scopes, and what each change affects (moves + Realtime)
 │  │  │  ├─ realtime.ts         ← one channel per person → targeted invalidation, polling fallback
 │  │  │  ├─ storage.ts          ← proof uploads, signed links
-│  │  │  └─ useDebouncedValue.ts ← search boxes ask when typing pauses
+│  │  │  ├─ useDebouncedValue.ts ← search boxes ask when typing pauses
+│  │  │  └─ usePageVisible.ts   ← whether the tab is being looked at (read receipts wait for it)
 │  │  ├─ features/              ← one folder per domain: api.ts (queries + mutations), model.ts (pure
 │  │  │                            domain logic: labels, states, predicates) and its screens
 │  │  │  ├─ auth/               ← session provider, sign in/up, password reset
-│  │  │  ├─ seats/              ← creator/brand seats, the seat switcher
+│  │  │  ├─ seats/              ← creator/brand seats, the seat switcher; party.ts + OtherSeat: whose an offer,
+│  │  │  │                         deal or conversation is, and what to show from a seat that isn't a party
 │  │  │  ├─ onboarding/         ← create a creator profile or a brand
 │  │  │  ├─ landing/            ← the public home page
 │  │  │  ├─ dashboard/          ← to-dos (todos.tsx: one table for badges and tasks), money, active deals
@@ -120,7 +122,8 @@ GameIn-version2/
 │  │  │  ├─ packages/           ← a creator's packages
 │  │  │  ├─ offers/             ← list, detail, new offer/pitch, counter
 │  │  │  ├─ deals/              ← list, detail (DealPage → Deliverables, DealExtras, FundDialog, Proof):
-│  │  │  │                         funding, proof, approval, release, rating
+│  │  │  │                         funding, proof, approval, release, rating; undoWindow.ts times the undo
+│  │  │  │                         window on the device's own clock
 │  │  │  ├─ messages/           ← conversations and threads
 │  │  │  ├─ wallet/             ← creator balance, history, payouts
 │  │  │  ├─ payments/           ← brand payments and escrow
@@ -132,7 +135,8 @@ GameIn-version2/
 │  │  │  └─ layout/             ← AppShell (sidebar, top bar, phone bottom bar), PublicShell, PageHeader
 │  │  ├─ assets/fonts/          ← Rajdhani and Michroma (OFL), served with the app
 │  │  └─ styles/                ← tokens.css (the palette), base.css, ui.css, layout.css, pages.css
-│  └─ tests/e2e/                ← Playwright specs: the deal flow, access, auth, seats, public pages
+│  └─ tests/e2e/                ← Playwright specs: the deal flow, access, auth, seats, public pages, and
+│                                  regressions.spec.ts (each fixed bug's reproduction)
 ├─ supabase/                    ← the backend
 │  ├─ migrations/               ← schema, helpers, actions, views, security (applied in order)
 │  ├─ seed.sql                  ← demo accounts and deals
@@ -155,6 +159,24 @@ GameIn-version2/
   Realtime mark the same queries stale, so the person who moved and the person watching see the same refresh.
 - A business number shown on screen (5%, 24 hours, 7 days) comes from `lib/rules.ts`, never a literal.
 - Shared UI lives in `components/ui`, and nothing in `ui` knows about the database.
+
+**Rules that came out of bugs.** Each of these was broken once; `tests/e2e/regressions.spec.ts` and the unit tests
+named below hold them.
+
+- **A screen states only what it knows.** A page shows an error in place of its content only when there is nothing
+  to show (`query.isLoadingError`); a refresh that fails later leaves what's loaded on screen, with any dialog open
+  on it. A dashboard waits for every request its figures come from: a request that failed or is still on its way
+  is never shown as `$0.00` or "no deals".
+- **A page about one offer, deal or conversation checks the seat is a party to it** (`seats/party.ts`). One account
+  can hold several seats and one bell serves them all, so links arrive from every seat. From a seat that isn't a
+  party the page shows whose it is and a button to switch (`OtherSeat`), never the other party's view or moves.
+- **The device's clock is never compared with the database's to decide anything.** The undo window after approving
+  proof is timed from when this browser sent the approval and got its answer (`deals/undoWindow.ts`); "not yet"
+  from the database means ask again, not fail.
+- **One layer retries.** The Supabase client retries reads that can't reach the server; the query client doesn't
+  repeat that (`lib/queryClient.ts`), and moves are never retried.
+- **Money typed by a person is read strictly.** A comma is a thousands separator only between groups of three
+  digits; anything else ("299,99") is asked again rather than guessed (`lib/money.ts`).
 
 ## 4. Database schema
 
@@ -329,7 +351,9 @@ flowchart TB
 
 **Seats.** The signed-in person acts as one seat at a time: their creator profile or one of their brands. The seat
 lives in `SeatProvider` and is remembered per browser. Every query includes it in its key, so switching seats shows
-the other side's data without a reload.
+the other side's data without a reload. An offer, deal or conversation opened from a seat that isn't one of its two
+parties shows whose it is and offers the switch; the bell words each notification for the seat it was meant for and
+switches to it when pressed.
 
 **Routes:**
 
@@ -355,7 +379,9 @@ the other side's data without a reload.
   (`affected` in `lib/keys.ts`). For example, a `proofs` row invalidates `['deal', deal_id]`, the deal lists, the
   to-dos and the wallet. Only the screens on show refetch.
 - If Realtime can't connect, the screens on show refetch every 5 seconds until it's back: the kinds Realtime would
-  have refreshed (`LIVE_SCOPES`), not the creator directory or the account's seats.
+  have refreshed (`LIVE_SCOPES`), not the creator directory or the account's seats. A refresh still on its way is
+  left to land (on a slow connection one can outlast a tick), and a screen that couldn't load keeps its error and
+  its "try again" instead of flickering back to a spinner.
 - The notification bell checks every 30 seconds as a safety net. When a newer notification turns up, it refreshes
   the screens on show that haven't refreshed since it arrived, so a move that Realtime already delivered isn't
   fetched twice. The app also refetches when the tab comes back into view.
@@ -410,7 +436,10 @@ brand API, admin tools.
 - **App unit tests** (Vitest) cover money formatting and the fee formulas (checked against values computed by the
   database's own functions), deliverables validation, error messages, time formatting and the shared clock, the
   cache keys and what each change affects (Realtime and moves alike), the deal model, the to-do kinds, activity
-  lines, proof file names, offer turns, and the deliverables editor.
+  lines, proof file names, offer turns, and the deliverables editor. They also hold the rules that came out of bugs:
+  reading typed money, which failures are retried, the fallback refresh, the undo window and its countdown on
+  clocks that are off, whose a deal is, the deal page under a failed refresh, the message box, dialog focus, and
+  brand web names.
 - **App end to end** (Playwright) runs on desktop and phone against the Supabase CLI stack with the migrations and
   seed. Two new people in two browsers:
   - sign up and onboard; a package, a booking, a counter that arrives live, acceptance;
@@ -419,7 +448,11 @@ brand API, admin tools.
   - the creator's wallet and a payout.
 
   Plus: what an outsider can't see (row-level security), sign-in redirects back to the page asked for, joining
-  twice with one email, a wrong password, switching seats, and the public pages.
+  twice with one email, a wrong password, switching seats, and the public pages. `regressions.spec.ts` replays
+  each bug that was fixed: a link opened from the wrong seat, a "review proof" link on a long deal, dashboards when
+  a request fails, changing the creator on a new offer, brand names of any length or script, broken links, typing
+  into a dialog, "seen" on a message nobody looked at, and a package repriced mid-booking. The deal flow approves
+  from a browser whose clock runs half a minute fast.
 - **CI** (`.github/workflows/app.yml`) runs on every push and pull request:
   1. typecheck, lint, unit tests, build;
   2. e2e (desktop and phone, side by side);

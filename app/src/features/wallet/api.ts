@@ -18,7 +18,10 @@ export function useWalletSummary(creatorId: string | null) {
 export function useWalletLines(creatorId: string | null) {
   return useQuery({
     queryKey: keys.walletLines(creatorId ?? 'none'),
-    queryFn: () => must(supabase.from('wallet_lines').select('*').eq('creator_id', creatorId!).order('at', { ascending: false }).limit(100)),
+    // newest first; a release and its fee share one moment, so the kind settles their order (the release, then its
+    // fee) instead of leaving it to chance from one refresh to the next
+    queryFn: () =>
+      must(supabase.from('wallet_lines').select('*').eq('creator_id', creatorId!).order('at', { ascending: false }).order('kind', { ascending: false }).limit(100)),
     enabled: !!creatorId,
   });
 }

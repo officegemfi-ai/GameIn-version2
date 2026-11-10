@@ -34,8 +34,11 @@ export const test = base.extend<{ closePeople: void }>({
 });
 export { expect };
 
-/** A browser for one more person, the same size as the project's, signed out. */
-export async function person(browser: Browser, testInfo: TestInfo): Promise<Page> {
+/**
+ * A browser for one more person, the same size as the project's, signed out. `clockOffsetMs` gives it a device clock
+ * that runs that far ahead of (or, negative, behind) the real one, as phones and laptops often do.
+ */
+export async function person(browser: Browser, testInfo: TestInfo, options: { clockOffsetMs?: number } = {}): Promise<Page> {
   const use = testInfo.project.use;
   const context = await browser.newContext({
     baseURL: use.baseURL,
@@ -46,7 +49,34 @@ export async function person(browser: Browser, testInfo: TestInfo): Promise<Page
   });
   opened.push(context);
   await fastFallback(context);
+  if (options.clockOffsetMs) await skewClock(context, options.clockOffsetMs);
   return context.newPage();
+}
+
+/** The pages of this browser tell the time `offsetMs` off; timers keep their real pace. */
+async function skewClock(context: BrowserContext, offsetMs: number): Promise<void> {
+  await context.addInitScript((offset) => {
+    const RealDate = Date;
+    class SkewedDate extends RealDate {
+      constructor(...args: unknown[]) {
+        if (args.length === 0) super(RealDate.now() + offset);
+        else super(...(args as [number]));
+      }
+      static override now(): number {
+        return RealDate.now() + offset;
+      }
+    }
+    (globalThis as { Date: DateConstructor }).Date = SkewedDate as unknown as DateConstructor;
+  }, offsetMs);
+}
+
+/** Leaving the tab (hidden) or coming back to it (visible), as the page itself hears about it. */
+export async function setTabVisible(page: Page, visible: boolean): Promise<void> {
+  await page.evaluate((v) => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (v ? 'visible' : 'hidden') });
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => !v });
+    document.dispatchEvent(new Event('visibilitychange', { bubbles: true }));
+  }, visible);
 }
 
 /** Without Realtime (a bare local stack) the app refetches on a timer instead: quicker in tests. */

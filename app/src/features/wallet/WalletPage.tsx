@@ -52,8 +52,9 @@ export default function WalletPage() {
       </div>
     );
   }
+  // an error only when there's nothing to show: a refresh that fails later leaves the loaded wallet on screen
+  if (summary.isLoadingError || lines.isLoadingError) return <QueryError query={summary.isLoadingError ? summary : lines} />;
   if (summary.isPending || lines.isPending) return <Loading />;
-  if (summary.isError || lines.isError) return <QueryError query={summary.isError ? summary : lines} />;
   const w = summary.data;
   const available = w?.available_cents ?? 0;
 

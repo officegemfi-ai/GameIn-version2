@@ -52,6 +52,15 @@ async function fetchThread(conversationId: string) {
 }
 export type Thread = Awaited<ReturnType<typeof fetchThread>>;
 
+/**
+ * What identifies a thread's newest line ('' for an empty thread). The thread view follows this to the bottom; the
+ * number of lines can't be followed, because a thread shows its last 200 and stays at 200 from then on.
+ */
+export function newestLineKey(timeline: Pick<Thread['timeline'][number], 'kind' | 'ref'>[]): string {
+  const newest = timeline[timeline.length - 1];
+  return newest ? `${newest.kind}:${newest.ref}` : '';
+}
+
 /** A conversation: its last 200 lines (messages and the deal's events), oldest first. */
 export function useThread(conversationId: string | undefined) {
   return useQuery({ queryKey: keys.thread(conversationId ?? 'none'), queryFn: () => fetchThread(conversationId!), enabled: !!conversationId });

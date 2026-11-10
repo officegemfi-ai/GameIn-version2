@@ -7,6 +7,8 @@ import { proofFileName, proofPath } from '@/lib/storage';
 import type { Item } from '@/lib/types';
 import { offerState } from './offers/model';
 import { cleanSearch, creatorProfileRow } from './creators/api';
+import { newestLineKey } from './messages/api';
+import { onboardingPath } from './auth/api';
 import { suggestHandle } from './onboarding/OnboardingPage';
 import { shortLink } from './deals/Proof';
 
@@ -44,6 +46,23 @@ describe('small helpers', () => {
         platforms: [{ platform: 'twitch', followers: ' 350K ' }, { platform: '', followers: '1' }, { platform: 'kick', followers: '  ' }],
       }),
     ).toEqual({ display_name: 'Nova', handle: 'nova', bio: 'FPS streams', platforms: [{ platform: 'twitch', followers: '350K' }, { platform: 'kick' }] });
+  });
+
+  it('follows a thread by its newest line, which still changes once the thread is full', () => {
+    const line = (n: number) => ({ kind: 'message', ref: `m${n}` });
+    const full = Array.from({ length: 200 }, (_, i) => line(i + 1)); // a thread shows its last 200 lines
+    const next = [...full.slice(1), line(201)]; // a new message pushes the oldest out: still 200
+    expect(next.length).toBe(full.length);
+    expect(newestLineKey(next)).not.toBe(newestLineKey(full));
+    expect(newestLineKey(full)).toBe('message:m200');
+    expect(newestLineKey([])).toBe('');
+    // a message and an event can carry the same number
+    expect(newestLineKey([{ kind: 'offer_sent', ref: '7' }])).not.toBe(newestLineKey([{ kind: 'message', ref: '7' }]));
+  });
+
+  it('sends a new account on to set up the side it signed up as', () => {
+    expect(onboardingPath('brand')).toBe('/onboarding?role=brand');
+    expect(onboardingPath('creator')).toBe('/onboarding?role=creator');
   });
 
   it('says whose turn an offer is', () => {

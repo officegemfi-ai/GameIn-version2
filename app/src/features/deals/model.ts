@@ -57,7 +57,9 @@ export const owesFunding = (d: { status: DealStatus; money: Pick<DealMoneyRow, '
 /** The latest proof for each deliverable (a deliverable gets new proof after changes are requested). */
 export function latestProofs(proofs: ProofRow[]): Map<string, ProofRow> {
   const out = new Map<string, ProofRow>();
-  for (const p of [...proofs].sort((a, b) => a.submitted_at.localeCompare(b.submitted_at))) out.set(p.deliverable_id, p);
+  // by the moment itself, not its text: the database prints "…:05+00:00" and "…:05.5+00:00" for the same second,
+  // and text order puts those the wrong way round
+  for (const p of [...proofs].sort((a, b) => Date.parse(a.submitted_at) - Date.parse(b.submitted_at))) out.set(p.deliverable_id, p);
   return out;
 }
 

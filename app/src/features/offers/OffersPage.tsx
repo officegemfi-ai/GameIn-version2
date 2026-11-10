@@ -83,7 +83,7 @@ export default function OffersPage() {
       />
       {q.isPending ? (
         <Loading />
-      ) : q.isError ? (
+      ) : q.isLoadingError ? (
         <QueryError query={q} />
       ) : groups[current].length === 0 ? (
         <Card>

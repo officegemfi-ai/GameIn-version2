@@ -4,7 +4,7 @@ import { keys } from '@/lib/keys';
 import { supabase } from '@/lib/supabase';
 
 const SELECT =
-  'id, kind, created_at, read_at, event:events(kind, data, amount_cents, deal_id, offer_id, actor_side, brand:brands(name), creator:creators(display_name))';
+  'id, kind, created_at, read_at, event:events(kind, data, amount_cents, deal_id, offer_id, actor_side, brand_id, creator_id, brand:brands(name), creator:creators(display_name))';
 
 async function fetchNotifications() {
   return must(supabase.from('notifications').select(SELECT).order('id', { ascending: false }).limit(30));

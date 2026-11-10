@@ -50,6 +50,8 @@ export function errorMessage(error: unknown): string {
   }
   // PostgREST: an expired token, a broken unique rule, a row-level security refusal on a direct write
   if (e.code === 'PGRST301' || e.code === 'PGRST303') return AUTH.session_expired;
+  // an id that isn't one (a link that was cut short or mistyped): the database can't even look it up
+  if (e.code === '22P02') return 'That link doesn’t lead anywhere: part of it is missing or mistyped.';
   if (e.code === '23505') return 'That’s already taken. Try another.';
   if (e.code === '23514') return 'Check the details: one of them isn’t allowed.';
   if (e.code === '42501' && /row-level security/i.test(message)) return 'You can’t change that from this seat.';

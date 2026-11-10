@@ -39,8 +39,9 @@ function subscribe(ms: number, listener: () => void): () => void {
 
 function snapshot(ms: number): Date {
   const clock = clockFor(ms);
-  // a clock that isn't running catches up before it's read again (the same Date until then, as React needs)
-  if (clock.timer === undefined && Date.now() - clock.now.getTime() >= ms) clock.now = new Date();
+  // a clock that isn't running catches up before it's read again (the same Date until then, as React needs); "catches
+  // up" either way, because a device's clock can also be set back
+  if (clock.timer === undefined && Math.abs(Date.now() - clock.now.getTime()) >= ms) clock.now = new Date();
   return clock.now;
 }
 

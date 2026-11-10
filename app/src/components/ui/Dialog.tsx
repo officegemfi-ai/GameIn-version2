@@ -8,6 +8,10 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 /**
  * A modal dialog: focus moves in and stays in (Tab wraps), Escape or the backdrop closes it, focus returns to where it
  * was. On a phone it rises from the bottom as a sheet.
+ *
+ * Focus starts on the field marked `data-autofocus` (a dialog that is there to be typed into), otherwise on the first
+ * control, which is the close button. (React's own `autoFocus` isn't used for this: it moves focus before the dialog
+ * can note where focus was, so closing couldn't put it back.)
  */
 export function Dialog({ open, onClose, title, description, children, footer, wide, busy }: {
   open: boolean;
@@ -32,7 +36,9 @@ export function Dialog({ open, onClose, title, description, children, footer, wi
     if (!open) return;
     const before = document.activeElement as HTMLElement | null;
     const node = panel.current;
-    const first = node?.querySelector<HTMLElement>('[autofocus], ' + FOCUSABLE);
+    // two lookups, not one selector list: a list answers with whichever match comes first in the page, and the close
+    // button always comes before the fields
+    const first = node?.querySelector<HTMLElement>('[data-autofocus]') ?? node?.querySelector<HTMLElement>(FOCUSABLE);
     (first ?? node)?.focus();
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';

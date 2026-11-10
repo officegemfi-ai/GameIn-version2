@@ -1,7 +1,7 @@
 // The whole marketplace between two brand-new accounts, each in their own browser: a creator lists a package, a
 // brand books it, they agree a price, the brand funds escrow, the creator sends proof, the brand approves (and once
 // undoes), the money is released, they rate each other and talk, and the creator pays out.
-import { deliverable, expect, onboardBrand, onboardCreator, person, signUp, test, uid } from './support';
+import { deliverable, expect, onboardBrand, onboardCreator, person, signIn, signUp, test, uid } from './support';
 
 const withFiles = process.env.GAMEIN_STORAGE === '1'; // the stack has Storage (the Supabase CLI's does)
 const withRealtime = process.env.GAMEIN_REALTIME === '1'; // and Realtime
@@ -120,24 +120,32 @@ test('a brand books a creator, they agree a price, and the work is paid from esc
     await expect(clip.getByText('in review')).toBeVisible();
   });
 
-  await test.step('the brand approves, undoes, then approves for good', async () => {
-    const clip = deliverable(brand, 'Recap clip');
+  await test.step('the brand approves, undoes, then approves for good, from a laptop whose clock is half a minute fast', async () => {
+    // The undo window is the database's six seconds, whatever the device says the time is. (Timed against the
+    // device's clock, a fast one offered no undo at all and asked for the release before the database would give it.)
+    const laptop = await person(browser, testInfo, { clockOffsetMs: 30_000 });
+    await signIn(laptop, `acme-${id}@gamein.test`);
+    await expect(laptop).toHaveURL(/\/dashboard$/);
+    await laptop.goto(dealPath);
+    const clip = deliverable(laptop, 'Recap clip');
     await expect(clip.getByText('in review')).toBeVisible(ARRIVES);
     if (withFiles) {
       // the file opens through a signed link that only the deal's two sides can get
-      const [tab] = await Promise.all([brand.waitForEvent('popup'), clip.getByRole('button', { name: /open the file: recap-clip\.txt/ }).click()]);
+      const [tab] = await Promise.all([laptop.waitForEvent('popup'), clip.getByRole('button', { name: /open the file: recap-clip\.txt/ }).click()]);
       await expect.poll(() => tab.url()).toContain('/storage/v1/object/sign/proofs/');
       await tab.close();
     } else {
       await expect(clip.getByRole('link', { name: /tiktok\.com/ })).toBeVisible();
     }
     await clip.getByRole('button', { name: 'approve & release $175.00' }).click();
+    await expect(clip.getByText(/Releasing in [1-6]s/)).toBeVisible();
     await clip.getByRole('button', { name: 'undo' }).click();
     await expect(clip.getByRole('button', { name: 'approve & release $175.00' })).toBeVisible();
     await expect(clip.getByText('in review')).toBeVisible();
     await clip.getByRole('button', { name: 'approve & release $175.00' }).click();
     await expect(clip.getByText(`$175.00 released to ${creatorName}.`)).toBeVisible({ timeout: 30_000 });
-    await expect(brand.getByText('Complete. Every deliverable was approved and released.')).toBeVisible();
+    // and the brand's other browser, open on the deal all along, has followed
+    await expect(brand.getByText('Complete. Every deliverable was approved and released.')).toBeVisible(ARRIVES);
   });
 
   await test.step('both sides rate the deal', async () => {
@@ -166,6 +174,18 @@ test('a brand books a creator, they agree a price, and the work is paid from esc
     await reply.fill('Count me in.');
     await reply.press('Enter');
     await expect(brand.getByText('Count me in.')).toBeVisible(ARRIVES);
+
+    // on a slow connection the next message is typed while the last is still on its way: it stays in the box
+    await brand.route('**/rpc/send_message', async (route) => {
+      await new Promise((r) => setTimeout(r, 1500));
+      await route.continue();
+    });
+    await box.fill('One more thing');
+    await box.press('Enter');
+    await box.pressSequentially('about the thumbnail');
+    await expect(brand.getByText('One more thing')).toBeVisible(); // the first has landed
+    await expect(box).toHaveValue('about the thumbnail'); // and didn't take the second with it
+    await brand.unroute('**/rpc/send_message');
   });
 
   await test.step('the creator pays out what was released, less GameIn’s 5%', async () => {

@@ -128,7 +128,12 @@ The new app has its own tests (`app/README.md` says how to run them):
   accounts make a whole deal: a package, a booking, a counter that arrives live, acceptance, escrow funded by card
   with the 5% fee, proof as a link and as a file, approval, undo, approval again, release, both ratings, messages
   both ways and a payout. Also: what an outsider can't see, sign-in redirects, joining twice with one email, a wrong
-  password, switching seats, and the public pages.
+  password, switching seats, and the public pages;
+- regressions (`app/tests/e2e/regressions.spec.ts`, and unit tests beside the code): every bug that was fixed keeps
+  its reproduction as a test that fails on the code as it was. A deal opened from the wrong seat, a "review proof"
+  link on a long deal, a dashboard when a request fails, the undo window on a device whose clock is off, a message
+  typed while the last one is sending, "seen" on a message nobody looked at, "299,99" typed as a price, a brand name
+  the database can't make a web name from, a package repriced while it's being booked.
 
 GitHub runs them on every push and pull request (`.github/workflows/app.yml`), then publishes the app under `/app/` on
 `main` once Pages is set to deploy from GitHub Actions.

@@ -6,6 +6,8 @@ import { dealDays, itemDays, itemsFromJson } from '@/lib/items';
 import { formatCents } from '@/lib/money';
 import { FEE_PERCENT } from '@/lib/rules';
 import type { Side } from '@/lib/types';
+import { OtherSeat } from '@/features/seats/OtherSeat';
+import { isParty } from '@/features/seats/party';
 import { useSeat } from '@/features/seats/SeatProvider';
 import { useConversationWith } from '@/features/messages/api';
 import { OfferActions } from './OfferActions';
@@ -103,7 +105,7 @@ export default function OfferPage() {
   const conversation = useConversationWith(q.data?.offer.brand_id ?? null, q.data?.offer.creator_id ?? null);
 
   if (q.isPending) return <Loading />;
-  if (q.isError) {
+  if (q.isLoadingError) {
     return (
       <div className="g-page">
         <PageHeader title="Offer" back={{ to: '/offers', label: 'offers' }} />
@@ -116,6 +118,17 @@ export default function OfferPage() {
   const st = offerState(o, side);
   const names: Record<Side, string> = { brand: o.brand?.name ?? 'The brand', creator: o.creator?.display_name ?? 'The creator' };
   const other = side === 'brand' ? names.creator : names.brand;
+
+  // opened from a seat that isn't a party to this offer (a notification or a link for another of the account's
+  // seats): "your turn" and the moves below would be someone else's
+  if (!isParty(seat, o)) {
+    return (
+      <div className="g-page g-page--narrow">
+        <PageHeader back={{ to: '/offers', label: 'offers' }} title={o.title} subtitle={`${names.brand} → ${names.creator}`} />
+        <OtherSeat what="offer" of={o} />
+      </div>
+    );
+  }
 
   return (
     <div className="g-page g-page--narrow">

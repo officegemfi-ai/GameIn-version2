@@ -20,7 +20,10 @@ async function fetchCreatorsPage(search: string, page: number) {
     .from('creators')
     .select(CARD)
     .not('handle', 'like', 'deleted-%')
+    // by name, then by id: two creators with the same name must keep one order from page to page, or "show more"
+    // repeats one of them and skips the other
     .order('display_name')
+    .order('id')
     .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
   if (search) q = q.or(`display_name.ilike.%${search}%,handle.ilike.%${search}%`);
   return must(q);
@@ -40,19 +43,41 @@ export function useCreators(search: string, { enabled = true }: { enabled?: bool
   });
 }
 
-/** A few creators for the landing page. */
-export function useFeaturedCreators() {
-  return useQuery({ queryKey: keys.featuredCreators(), queryFn: () => fetchCreatorsPage('', 0).then((r) => r.filter((c) => c.packages.some((p) => p.active)).slice(0, 6)) });
+/**
+ * A few creators for the landing page: the first six, by name, who have a package a brand can book. The database
+ * picks them (an inner join on listed packages); picking them out of the directory's first page stopped finding any
+ * once enough creators without packages had signed up ahead of them in the alphabet.
+ */
+async function fetchFeaturedCreators(): Promise<CreatorCardRow[]> {
+  return must(
+    supabase
+      .from('creators')
+      .select('id, handle, display_name, bio, avatar_url, platforms, packages!inner(id, title, price_cents, active)')
+      .eq('packages.active', true)
+      .not('handle', 'like', 'deleted-%')
+      .order('display_name')
+      .order('id')
+      .limit(6),
+  );
 }
 
+export function useFeaturedCreators() {
+  return useQuery({ queryKey: keys.featuredCreators(), queryFn: fetchFeaturedCreators });
+}
+
+/** What a handle can be (creators.handle): anything else in an address can't be anyone's page. */
+const HANDLE = /^[A-Za-z0-9_.-]{2,32}$/;
+
 async function fetchCreator(handle: string) {
+  // not asked at all for something that can't be a handle: "*" and "%" are wildcards to the search underneath
+  if (!HANDLE.test(handle)) throw Object.assign(new Error('That creator wasn’t found. Check the address.'), { status: 404 });
   const exact = handle.replace(/[\\%_]/g, (c) => '\\' + c);
   return one(supabase.from('creators').select(PROFILE).ilike('handle', exact).maybeSingle(), 'That creator');
 }
 
 /** One creator's public page: profile and packages (their own inactive ones too, when it's them). */
-export function useCreator(handle: string) {
-  return useQuery({ queryKey: keys.creator(handle), queryFn: () => fetchCreator(handle) });
+export function useCreator(handle: string, { enabled = true }: { enabled?: boolean } = {}) {
+  return useQuery({ queryKey: keys.creator(handle), queryFn: () => fetchCreator(handle), enabled });
 }
 
 /** A creator profile by id: the signed-in creator's own, for settings and their packages page. */

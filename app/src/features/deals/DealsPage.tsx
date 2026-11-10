@@ -43,7 +43,7 @@ export default function DealsPage() {
       <Tabs label="Deals" value={tab} onChange={setTab} tabs={[{ id: 'active', label: 'active', count: activeCount }, { id: 'done', label: 'complete' }]} />
       {q.isPending ? (
         <Loading />
-      ) : q.isError ? (
+      ) : q.isLoadingError ? (
         <QueryError query={q} />
       ) : rows.length === 0 ? (
         <Card>

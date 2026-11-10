@@ -12,11 +12,15 @@ export function formatCents(cents: number | null | undefined): string {
 /**
  * What someone typed as dollars → cents, or null if it isn't an amount: "1,234.5" → 123450, "$40" → 4000.
  * At most two decimals; no negatives.
+ *
+ * A comma is only ever a thousands separator, so it has to sit between groups of three digits. "299,99" or "1,5" is
+ * someone writing cents the way much of the world does; reading that as $29,999 would be a hundred times what they
+ * meant, so it isn't an amount here and the form asks again.
  */
 export function parseDollars(input: string): number | null {
-  const s = input.trim().replace(/^\$/, '').replace(/,/g, '');
-  if (!/^\d+(\.\d{0,2})?$/.test(s)) return null;
-  const [whole = '0', frac = ''] = s.split('.');
+  const s = input.trim().replace(/^\$\s*/, '');
+  if (!/^(\d+|\d{1,3}(,\d{3})+)(\.\d{0,2})?$/.test(s)) return null;
+  const [whole = '0', frac = ''] = s.replace(/,/g, '').split('.');
   const cents = Number(whole) * 100 + Number((frac + '00').slice(0, 2));
   return Number.isSafeInteger(cents) ? cents : null;
 }

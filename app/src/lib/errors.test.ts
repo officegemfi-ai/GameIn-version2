@@ -20,6 +20,7 @@ describe('error messages', () => {
     expect(errorMessage(new TypeError('Failed to fetch'))).toMatch(/Can’t reach GameIn/);
     expect(errorMessage({ code: 'PGRST301', message: 'JWT expired' })).toMatch(/session expired/);
     expect(errorMessage({ code: '23505', message: 'duplicate key value violates unique constraint' })).toMatch(/already taken/);
+    expect(errorMessage({ code: '22P02', message: 'invalid input syntax for type uuid: "not-a-real-id"' })).toBe('That link doesn’t lead anywhere: part of it is missing or mistyped.');
     expect(errorMessage({ code: '42501', message: 'new row violates row-level security policy for table "packages"' })).toMatch(/can’t change that/);
   });
 

@@ -19,7 +19,7 @@ export default function CreatorPage() {
   const { user } = useAuth();
   const { seat, seats } = useSeats();
   const navigate = useNavigate();
-  const [booking, setBooking] = useState<PackageRow | null>(null);
+  const [bookingId, setBookingId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [writing, setWriting] = useState(false);
   const [message, setMessage] = useState('');
@@ -27,7 +27,7 @@ export default function CreatorPage() {
   const start = useStartConversation();
 
   if (q.isPending) return <Loading />;
-  if (q.isError) {
+  if (q.isLoadingError) {
     return (
       <div className="g-page g-public__wide">
         <QueryError query={q} />
@@ -39,6 +39,10 @@ export default function CreatorPage() {
   const isMe = seats.some((s) => s.side === 'creator' && s.id === c.id);
   const asBrand = seat?.side === 'brand' ? seat : null;
   const packages = c.packages.filter((p) => p.active || isMe).sort((a, b) => Number(b.active) - Number(a.active) || a.price_cents - b.price_cents);
+  // The package being booked is looked up in what's on the page now, not kept as a copy from when "book" was pressed.
+  // If the creator changes its price meanwhile, the database refuses the old one and the page is refreshed (below):
+  // the dialog then shows the new price to confirm. (With a copy, it kept offering the old price, refused every time.)
+  const booking: PackageRow | null = (bookingId && c.packages.find((p) => p.id === bookingId && p.active)) || null;
 
   return (
     <div className={`g-page${user ? '' : ' g-public__wide'}`}>
@@ -93,7 +97,7 @@ export default function CreatorPage() {
                   <div className="g-between g-package__foot">
                     <span className="g-package__price">{formatCents(p.price_cents)}</span>
                     {asBrand && p.active && !isMe ? (
-                      <Button variant="primary" size="sm" onClick={() => { setNote(''); setBooking(p); }}>book</Button>
+                      <Button variant="primary" size="sm" onClick={() => { setNote(''); setBookingId(p.id); }}>book</Button>
                     ) : null}
                   </div>
                 </article>
@@ -105,7 +109,7 @@ export default function CreatorPage() {
 
       {booking && asBrand ? (
         <ActionDialog
-          onClose={() => setBooking(null)}
+          onClose={() => setBookingId(null)}
           pending={book.isPending}
           title={`Book ${booking.title}`}
           description={`${asBrand.name} offers ${c.display_name} ${formatCents(booking.price_cents)} for this package. ${c.display_name} has ${OFFER_HOURS} hours to accept; then you fund escrow.`}
@@ -113,7 +117,15 @@ export default function CreatorPage() {
           onAction={() =>
             book.mutate(
               { brandId: asBrand.id, packageId: booking.id, priceCents: booking.price_cents, note },
-              { onSuccess: (offerId) => navigate(`/offers/${offerId}`) },
+              {
+                onSuccess: (offerId) => navigate(`/offers/${offerId}`),
+                // refused (its price changed, or it was taken off the list): show the package as it is now, and
+                // close the dialog if it can't be booked any more
+                onError: () =>
+                  void q.refetch().then((fresh) => {
+                    if (fresh.data && !fresh.data.packages.some((p) => p.id === booking.id && p.active)) setBookingId(null);
+                  }),
+              },
             )
           }
         >
@@ -135,7 +147,7 @@ export default function CreatorPage() {
             )
           }
         >
-          <TextAreaField label="Message" value={message} maxLength={4000} onChange={(e) => setMessage(e.target.value)} autoFocus />
+          <TextAreaField label="Message" value={message} maxLength={4000} onChange={(e) => setMessage(e.target.value)} data-autofocus />
         </ActionDialog>
       ) : null}
     </div>
